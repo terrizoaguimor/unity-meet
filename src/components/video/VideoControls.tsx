@@ -3,8 +3,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { gsap } from 'gsap';
 import { cn } from '@/lib/utils/cn';
-import { Button } from '@/components/ui/Button';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { ReactionButton } from '@/components/room/FloatingReactions';
+import { HandRaiseButton } from '@/components/room/HandRaiseButton';
 
 interface VideoControlsProps {
   // Estados de medios
@@ -15,6 +16,13 @@ interface VideoControlsProps {
   // Contadores
   participantCount: number;
   unreadMessages: number;
+
+  // Hand raise
+  isHandRaised?: boolean;
+  onToggleHandRaise?: () => void;
+
+  // Reactions
+  onReaction?: (emoji: string) => void;
 
   // Callbacks
   onToggleAudio: () => void;
@@ -41,6 +49,9 @@ export function VideoControls({
   isScreenSharing,
   participantCount,
   unreadMessages,
+  isHandRaised = false,
+  onToggleHandRaise,
+  onReaction,
   onToggleAudio,
   onToggleVideo,
   onToggleScreenShare,
@@ -147,6 +158,23 @@ export function VideoControls({
           <ScreenShareIcon className="w-5 h-5" />
         </button>
       </Tooltip>
+
+      {/* Reactions */}
+      {onReaction && (
+        <ReactionButton
+          onReact={onReaction}
+          className="hidden sm:block"
+        />
+      )}
+
+      {/* Hand Raise */}
+      {onToggleHandRaise && (
+        <HandRaiseButton
+          isRaised={isHandRaised}
+          onToggle={onToggleHandRaise}
+          className="hidden sm:block"
+        />
+      )}
 
       {/* Separador */}
       <div className="w-px h-8 bg-unity-light-gray dark:bg-unity-darker mx-1" />
