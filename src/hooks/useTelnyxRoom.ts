@@ -124,6 +124,41 @@ export function useTelnyxRoom({
   }, []); // Sin dependencias - usa ref
 
   /**
+   * Extraer nombre del contexto del participante
+   */
+  const getParticipantName = (context?: string, fallbackId?: string): string => {
+    if (context) {
+      try {
+        const parsed = JSON.parse(context);
+        if (parsed.displayName) return parsed.displayName;
+      } catch {
+        // Context no es JSON válido
+      }
+    }
+    return `Participante ${(fallbackId || 'Anon').slice(0, 6)}`;
+  };
+
+  /**
+   * Suscribirse a los streams existentes de un participante
+   */
+  const subscribeToExistingStreams = useCallback(async (
+    client: TelnyxVideoClient,
+    participantId: string,
+    streams: Map<string, unknown>
+  ) => {
+    const streamKeys = Array.from(streams.keys());
+    console.log(`[useTelnyxRoom] Subscribing to existing streams for ${participantId}:`, streamKeys);
+    for (const streamKey of streamKeys) {
+      try {
+        console.log(`[useTelnyxRoom] Subscribing to stream: ${streamKey}`);
+        await client.subscribeToParticipant(participantId, streamKey);
+      } catch (err) {
+        console.error(`[useTelnyxRoom] Error subscribing to ${streamKey}:`, err);
+      }
+    }
+  }, []);
+
+  /**
    * Configurar listeners de eventos del SDK
    * Sin dependencias - usa getState() para acciones del store
    */
@@ -132,13 +167,21 @@ export function useTelnyxRoom({
       // Participante unido
       client.on('participant_joined', (participantId: unknown, state: unknown) => {
         const id = participantId as string;
-        const stateData = state as { participants: Map<string, { origin: string }> };
+        const stateData = state as {
+          participants: Map<string, {
+            origin: string;
+            context?: string;
+            streams?: Map<string, unknown>;
+          }>
+        };
         const participantData = stateData.participants.get(id);
+
+        console.log('[useTelnyxRoom] participant_joined:', id, participantData);
 
         if (participantData && participantData.origin !== 'local') {
           const participant: Participant = {
             id,
-            name: `Participante ${id.slice(0, 6)}`,
+            name: getParticipantName(participantData.context, id),
             isHost: false,
             isMuted: false,
             isVideoOff: false,
@@ -148,12 +191,19 @@ export function useTelnyxRoom({
             joinedAt: new Date(),
           };
 
+          console.log('[useTelnyxRoom] Adding participant:', participant.name);
           useRoomStore.getState().addParticipant(participant);
+
+          // Subscribe to any existing streams this participant already has
+          if (participantData.streams && participantData.streams.size > 0) {
+            subscribeToExistingStreams(client, id, participantData.streams);
+          }
         }
       });
 
       // Participante salió
       client.on('participant_left', (participantId: unknown) => {
+        console.log('[useTelnyxRoom] participant_left:', participantId);
         useRoomStore.getState().removeParticipant(participantId as string);
       });
 
@@ -166,11 +216,15 @@ export function useTelnyxRoom({
           const stateData = state as { participants: Map<string, { origin: string }> };
           const participant = stateData.participants.get(id);
 
+          console.log('[useTelnyxRoom] stream_published:', id, key, participant?.origin);
+
           if (participant && participant.origin !== 'local') {
             try {
+              console.log('[useTelnyxRoom] Subscribing to new stream...');
               await client.subscribeToParticipant(id, key);
+              console.log('[useTelnyxRoom] Subscription request sent');
             } catch (err) {
-              console.error('Error al suscribirse:', err);
+              console.error('[useTelnyxRoom] Error subscribing:', err);
             }
           }
         }
@@ -182,13 +236,22 @@ export function useTelnyxRoom({
         (participantId: unknown, streamKey: unknown) => {
           const id = participantId as string;
           const key = streamKey as string;
+
+          console.log('[useTelnyxRoom] subscription_started:', id, key);
+
           const mediaStream = client.getParticipantMediaStream(id, key);
+          console.log('[useTelnyxRoom] Got MediaStream:', mediaStream ? 'yes' : 'no');
 
           if (mediaStream) {
+            const audioTracks = mediaStream.getAudioTracks();
+            const videoTracks = mediaStream.getVideoTracks();
+            console.log('[useTelnyxRoom] Audio tracks:', audioTracks.length, 'Video tracks:', videoTracks.length);
+
             useRoomStore.getState().updateParticipant(id, {
-              audioTrack: mediaStream.getAudioTracks()[0],
-              videoTrack: mediaStream.getVideoTracks()[0],
+              audioTrack: audioTracks[0],
+              videoTrack: videoTracks[0],
             });
+            console.log('[useTelnyxRoom] Participant updated with tracks');
           }
         }
       );
@@ -202,11 +265,12 @@ export function useTelnyxRoom({
 
       // Desconexión
       client.on('disconnected', () => {
+        console.log('[useTelnyxRoom] disconnected event');
         setConnectionState('disconnected');
         useRoomStore.getState().setConnectionState('disconnected');
       });
     },
-    [] // Sin dependencias - usa getState()
+    [subscribeToExistingStreams] // Agregar dependencia
   );
 
   /**
@@ -293,6 +357,46 @@ export function useTelnyxRoom({
         'publicar stream'
       );
       updateStatus('Completado!');
+
+      // 8. Suscribirse a participantes existentes
+      updateStatus('Suscribiendo a participantes existentes...');
+      const roomState = client.getState();
+      if (roomState) {
+        const participantEntries = Array.from(roomState.participants.entries());
+        console.log('[useTelnyxRoom] Checking existing participants:', participantEntries.length);
+        for (const [participantId, participantData] of participantEntries) {
+          // Ignorar participante local
+          if (participantData.origin === 'local') continue;
+
+          console.log('[useTelnyxRoom] Found existing participant:', participantId);
+
+          // Agregar al store si no existe
+          const existing = useRoomStore.getState().participants.get(participantId);
+          if (!existing) {
+            const participant: Participant = {
+              id: participantId,
+              name: getParticipantName(
+                (participantData as { context?: string }).context,
+                participantId
+              ),
+              isHost: false,
+              isMuted: false,
+              isVideoOff: false,
+              isSpeaking: false,
+              isScreenSharing: false,
+              isHandRaised: false,
+              joinedAt: new Date(),
+            };
+            useRoomStore.getState().addParticipant(participant);
+          }
+
+          // Suscribirse a sus streams
+          const participantStreams = (participantData as { streams?: Map<string, unknown> }).streams;
+          if (participantStreams && participantStreams.size > 0) {
+            await subscribeToExistingStreams(client, participantId, participantStreams);
+          }
+        }
+      }
 
       // Crear participante local - usar refs para valores actuales
       const localParticipant: Participant = {

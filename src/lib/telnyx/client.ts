@@ -197,30 +197,84 @@ export class TelnyxVideoClient {
 
   /**
    * Obtener stream de medios local
+   * Soporta Full HD (1080p) y 4K cuando está disponible
    */
   async getLocalMediaStream(constraints?: MediaStreamConstraints): Promise<MediaStream> {
+    // Default: Full HD 1080p, fallback a 720p si no está disponible
     const defaultConstraints: MediaStreamConstraints = {
       audio: {
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
+        sampleRate: 48000,
+        channelCount: 1,
       },
       video: {
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
+        width: { ideal: 1920, min: 1280 },
+        height: { ideal: 1080, min: 720 },
+        frameRate: { ideal: 30, max: 60 },
         facingMode: 'user',
       },
     };
 
     try {
+      console.log('[TelnyxClient] Requesting media with constraints:', constraints || defaultConstraints);
       this.localStream = await navigator.mediaDevices.getUserMedia(
         constraints || defaultConstraints
       );
+
+      // Log actual resolution obtained
+      const videoTrack = this.localStream.getVideoTracks()[0];
+      if (videoTrack) {
+        const settings = videoTrack.getSettings();
+        console.log(`[TelnyxClient] Video resolution: ${settings.width}x${settings.height}@${settings.frameRate}fps`);
+      }
+
       return this.localStream;
     } catch (error) {
       console.error('Error al obtener medios:', error);
-      throw new Error('No se pudo acceder a la cámara/micrófono');
+
+      // Fallback to lower quality if high quality fails
+      try {
+        console.log('[TelnyxClient] Trying fallback 720p...');
+        const fallbackConstraints: MediaStreamConstraints = {
+          audio: true,
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30 },
+            facingMode: 'user',
+          },
+        };
+        this.localStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+        return this.localStream;
+      } catch (fallbackError) {
+        console.error('Fallback also failed:', fallbackError);
+        throw new Error('No se pudo acceder a la cámara/micrófono');
+      }
     }
+  }
+
+  /**
+   * Obtener stream de medios local en 4K (cuando esté disponible)
+   */
+  async getLocalMediaStream4K(): Promise<MediaStream> {
+    const constraints4K: MediaStreamConstraints = {
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        sampleRate: 48000,
+      },
+      video: {
+        width: { ideal: 3840, min: 1920 },
+        height: { ideal: 2160, min: 1080 },
+        frameRate: { ideal: 30, max: 60 },
+        facingMode: 'user',
+      },
+    };
+
+    return this.getLocalMediaStream(constraints4K);
   }
 
   /**
