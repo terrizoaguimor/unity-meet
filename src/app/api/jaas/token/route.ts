@@ -20,15 +20,22 @@ export async function POST(request: NextRequest) {
 
     const appId = process.env.JAAS_APP_ID;
     const apiKeyId = process.env.JAAS_API_KEY_ID;
-    const privateKey = process.env.JAAS_PRIVATE_KEY;
+    const privateKeyBase64 = process.env.JAAS_PRIVATE_KEY;
 
-    if (!appId || !apiKeyId || !privateKey) {
-      console.error('[JaaS Token] Missing environment variables');
+    if (!appId || !apiKeyId || !privateKeyBase64) {
+      console.error('[JaaS Token] Missing environment variables:', {
+        hasAppId: !!appId,
+        hasApiKeyId: !!apiKeyId,
+        hasPrivateKey: !!privateKeyBase64,
+      });
       return NextResponse.json(
         { success: false, error: 'JaaS configuration missing' },
         { status: 500 }
       );
     }
+
+    // Decode base64 private key
+    const privateKey = Buffer.from(privateKeyBase64, 'base64').toString('utf-8');
 
     // Generate unique user ID
     const odId = uuidv4();
