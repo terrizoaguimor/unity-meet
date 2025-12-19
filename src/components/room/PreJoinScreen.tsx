@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { cn } from '@/lib/utils/cn';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -27,7 +27,7 @@ interface DeviceInfo {
 
 /**
  * Pantalla de pre-unirse a la reunión
- * Versión simplificada sin efectos automáticos para evitar loops
+ * Basado en el patrón de telnyx-meet - sin useCallback problemáticos
  */
 export function PreJoinScreen({
   roomName,
@@ -35,63 +35,73 @@ export function PreJoinScreen({
   isLoading = false,
   error,
 }: PreJoinScreenProps) {
+  // Estado básico
   const [userName, setUserName] = useState('');
-  const [audioEnabled, setAudioEnabled] = useState(true);
-  const [videoEnabled, setVideoEnabled] = useState(true);
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [isAudioEnabled, setIsAudioEnabled] = useState(false);
+  const [isVideoEnabled, setIsVideoEnabled] = useState(false);
   const [permissionError, setPermissionError] = useState<string | null>(null);
-  const [hasPermissions, setHasPermissions] = useState(false);
-  const [isRequestingPermissions, setIsRequestingPermissions] = useState(false);
 
+  // Tracks locales (como en telnyx-meet)
+  const [localTracks, setLocalTracks] = useState<{
+    audio: MediaStreamTrack | undefined;
+    video: MediaStreamTrack | undefined;
+  }>({
+    audio: undefined,
+    video: undefined,
+  });
+
+  // Dispositivos
   const [audioInputs, setAudioInputs] = useState<DeviceInfo[]>([]);
   const [videoInputs, setVideoInputs] = useState<DeviceInfo[]>([]);
-  const [selectedAudioInput, setSelectedAudioInput] = useState<string>('');
-  const [selectedVideoInput, setSelectedVideoInput] = useState<string>('');
+  const [selectedAudioId, setSelectedAudioId] = useState<string>('');
+  const [selectedVideoId, setSelectedVideoId] = useState<string>('');
 
+  // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
 
-  // Solicitar permisos manualmente (no en useEffect)
-  const requestMediaAccess = useCallback(async () => {
-    if (isRequestingPermissions) return;
+  // Efecto para mostrar video cuando hay track
+  useEffect(() => {
+    if (!videoRef.current) return;
 
-    setIsRequestingPermissions(true);
-    setPermissionError(null);
+    if (localTracks.video) {
+      videoRef.current.srcObject = new MediaStream([localTracks.video]);
+    } else {
+      videoRef.current.srcObject = null;
+    }
+  }, [localTracks.video]);
 
+  // Cleanup al desmontar
+  useEffect(() => {
+    return () => {
+      if (localTracks.audio) {
+        localTracks.audio.stop();
+      }
+      if (localTracks.video) {
+        localTracks.video.stop();
+      }
+    };
+  }, []); // Solo cleanup al desmontar
+
+  // Cargar dispositivos al montar
+  useEffect(() => {
+    loadDevices();
+  }, []);
+
+  // Función simple para cargar dispositivos
+  const loadDevices = async () => {
     try {
-      // Detener stream anterior si existe
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-      }
-
-      // Solicitar acceso a cámara y micrófono
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: selectedAudioInput ? { deviceId: { exact: selectedAudioInput } } : true,
-        video: selectedVideoInput ? { deviceId: { exact: selectedVideoInput } } : true,
-      });
-
-      streamRef.current = stream;
-      setLocalStream(stream);
-      setHasPermissions(true);
-
-      // Actualizar video element
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
-
-      // Obtener lista de dispositivos
       const devices = await navigator.mediaDevices.enumerateDevices();
 
       const audioDevices: DeviceInfo[] = [];
       const videoDevices: DeviceInfo[] = [];
 
       devices.forEach(device => {
-        if (device.kind === 'audioinput') {
+        if (device.kind === 'audioinput' && device.deviceId) {
           audioDevices.push({
             deviceId: device.deviceId,
             label: device.label || `Micrófono ${audioDevices.length + 1}`,
           });
-        } else if (device.kind === 'videoinput') {
+        } else if (device.kind === 'videoinput' && device.deviceId) {
           videoDevices.push({
             deviceId: device.deviceId,
             label: device.label || `Cámara ${videoDevices.length + 1}`,
@@ -102,108 +112,122 @@ export function PreJoinScreen({
       setAudioInputs(audioDevices);
       setVideoInputs(videoDevices);
 
-      // Seleccionar dispositivos por defecto
-      if (!selectedAudioInput && audioDevices.length > 0) {
-        setSelectedAudioInput(audioDevices[0].deviceId);
+      if (audioDevices.length > 0 && !selectedAudioId) {
+        setSelectedAudioId(audioDevices[0].deviceId);
       }
-      if (!selectedVideoInput && videoDevices.length > 0) {
-        setSelectedVideoInput(videoDevices[0].deviceId);
+      if (videoDevices.length > 0 && !selectedVideoId) {
+        setSelectedVideoId(videoDevices[0].deviceId);
       }
-
     } catch (err) {
-      console.error('Error accessing media:', err);
-      if (err instanceof Error) {
-        if (err.name === 'NotAllowedError') {
-          setPermissionError('Permisos de cámara/micrófono denegados');
-        } else if (err.name === 'NotFoundError') {
-          setPermissionError('No se encontró cámara o micrófono');
-        } else {
-          setPermissionError('Error al acceder a dispositivos');
-        }
-      }
-      setHasPermissions(false);
-    } finally {
-      setIsRequestingPermissions(false);
+      console.error('Error loading devices:', err);
     }
-  }, [selectedAudioInput, selectedVideoInput, isRequestingPermissions]);
+  };
 
-  // Cambiar dispositivo de audio
-  const handleAudioDeviceChange = useCallback(async (deviceId: string) => {
-    setSelectedAudioInput(deviceId);
-    if (hasPermissions) {
-      // Re-solicitar con nuevo dispositivo
-      try {
-        if (streamRef.current) {
-          streamRef.current.getTracks().forEach(track => track.stop());
-        }
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: { deviceId: { exact: deviceId } },
-          video: selectedVideoInput ? { deviceId: { exact: selectedVideoInput } } : true,
-        });
-        streamRef.current = stream;
-        setLocalStream(stream);
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-      } catch (err) {
-        console.error('Error changing audio device:', err);
-      }
-    }
-  }, [hasPermissions, selectedVideoInput]);
-
-  // Cambiar dispositivo de video
-  const handleVideoDeviceChange = useCallback(async (deviceId: string) => {
-    setSelectedVideoInput(deviceId);
-    if (hasPermissions) {
-      try {
-        if (streamRef.current) {
-          streamRef.current.getTracks().forEach(track => track.stop());
-        }
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: selectedAudioInput ? { deviceId: { exact: selectedAudioInput } } : true,
-          video: { deviceId: { exact: deviceId } },
-        });
-        streamRef.current = stream;
-        setLocalStream(stream);
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-      } catch (err) {
-        console.error('Error changing video device:', err);
-      }
-    }
-  }, [hasPermissions, selectedAudioInput]);
-
-  // Toggle audio
-  const toggleAudio = useCallback(() => {
-    if (localStream) {
-      localStream.getAudioTracks().forEach(track => {
-        track.enabled = !audioEnabled;
+  // Obtener track de audio
+  const getAudioTrack = async (deviceId?: string): Promise<MediaStreamTrack | undefined> => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: deviceId ? { deviceId: { exact: deviceId } } : true,
       });
+      return stream.getAudioTracks()[0];
+    } catch (err) {
+      console.error('Error getting audio:', err);
+      return undefined;
     }
-    setAudioEnabled(prev => !prev);
-  }, [localStream, audioEnabled]);
+  };
 
-  // Toggle video
-  const toggleVideo = useCallback(() => {
-    if (localStream) {
-      localStream.getVideoTracks().forEach(track => {
-        track.enabled = !videoEnabled;
+  // Obtener track de video
+  const getVideoTrack = async (deviceId?: string): Promise<MediaStreamTrack | undefined> => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: deviceId ? { deviceId: { exact: deviceId } } : true,
       });
+      // Recargar dispositivos después de obtener permisos
+      loadDevices();
+      return stream.getVideoTracks()[0];
+    } catch (err) {
+      console.error('Error getting video:', err);
+      return undefined;
     }
-    setVideoEnabled(prev => !prev);
-  }, [localStream, videoEnabled]);
+  };
 
-  // Handle join
-  const handleJoin = useCallback(() => {
+  // Handler para toggle de audio
+  const handleAudioToggle = async () => {
+    setPermissionError(null);
+
+    if (localTracks.audio) {
+      // Apagar audio
+      localTracks.audio.stop();
+      setLocalTracks(prev => ({ ...prev, audio: undefined }));
+      setIsAudioEnabled(false);
+    } else {
+      // Encender audio
+      const track = await getAudioTrack(selectedAudioId);
+      if (track) {
+        setLocalTracks(prev => ({ ...prev, audio: track }));
+        setIsAudioEnabled(true);
+      } else {
+        setPermissionError('No se pudo acceder al micrófono');
+      }
+    }
+  };
+
+  // Handler para toggle de video
+  const handleVideoToggle = async () => {
+    setPermissionError(null);
+
+    if (localTracks.video) {
+      // Apagar video
+      localTracks.video.stop();
+      setLocalTracks(prev => ({ ...prev, video: undefined }));
+      setIsVideoEnabled(false);
+    } else {
+      // Encender video
+      const track = await getVideoTrack(selectedVideoId);
+      if (track) {
+        setLocalTracks(prev => ({ ...prev, video: track }));
+        setIsVideoEnabled(true);
+      } else {
+        setPermissionError('No se pudo acceder a la cámara');
+      }
+    }
+  };
+
+  // Handler para cambio de dispositivo de audio
+  const handleAudioDeviceChange = async (deviceId: string) => {
+    setSelectedAudioId(deviceId);
+
+    if (localTracks.audio) {
+      localTracks.audio.stop();
+      const track = await getAudioTrack(deviceId);
+      setLocalTracks(prev => ({ ...prev, audio: track }));
+    }
+  };
+
+  // Handler para cambio de dispositivo de video
+  const handleVideoDeviceChange = async (deviceId: string) => {
+    setSelectedVideoId(deviceId);
+
+    if (localTracks.video) {
+      localTracks.video.stop();
+      const track = await getVideoTrack(deviceId);
+      setLocalTracks(prev => ({ ...prev, video: track }));
+    }
+  };
+
+  // Handler para unirse
+  const handleJoin = () => {
     if (!userName.trim()) return;
+
     onJoin(userName.trim(), {
-      audioEnabled,
-      videoEnabled,
-      audioDeviceId: selectedAudioInput,
-      videoDeviceId: selectedVideoInput,
+      audioEnabled: isAudioEnabled,
+      videoEnabled: isVideoEnabled,
+      audioDeviceId: selectedAudioId,
+      videoDeviceId: selectedVideoId,
     });
-  }, [userName, audioEnabled, videoEnabled, selectedAudioInput, selectedVideoInput, onJoin]);
+  };
+
+  const hasMediaAccess = isAudioEnabled || isVideoEnabled;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary-50 via-white to-secondary-50 dark:from-neutral-950 dark:via-neutral-900 dark:to-neutral-950 flex items-center justify-center p-4">
@@ -227,7 +251,7 @@ export function PreJoinScreen({
           {/* Video Preview */}
           <div className="lg:col-span-3 space-y-4">
             <div className="relative aspect-video bg-neutral-900 rounded-2xl overflow-hidden shadow-2xl ring-1 ring-neutral-200 dark:ring-neutral-800">
-              {videoEnabled && localStream ? (
+              {isVideoEnabled && localTracks.video ? (
                 <video
                   ref={videoRef}
                   autoPlay
@@ -239,16 +263,16 @@ export function PreJoinScreen({
                 <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-neutral-800 to-neutral-900">
                   <div className="text-center">
                     <Avatar name={userName || 'Usuario'} size="xl" />
-                    {!hasPermissions && (
-                      <p className="mt-4 text-sm text-neutral-400">
-                        Haz clic en el botón para activar tu cámara
-                      </p>
-                    )}
+                    <p className="mt-4 text-sm text-neutral-400">
+                      {!hasMediaAccess
+                        ? 'Activa tu cámara o micrófono para comenzar'
+                        : 'Cámara desactivada'}
+                    </p>
                   </div>
                 </div>
               )}
 
-              {userName && localStream && (
+              {userName && isVideoEnabled && (
                 <div className="absolute bottom-16 left-4 px-3 py-1.5 bg-black/60 backdrop-blur-sm rounded-lg">
                   <span className="text-sm font-medium text-white">{userName}</span>
                 </div>
@@ -257,31 +281,37 @@ export function PreJoinScreen({
               {/* Controles de preview */}
               <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2">
                 <button
-                  onClick={toggleAudio}
+                  onClick={handleAudioToggle}
                   className={cn(
                     'p-3 rounded-full transition-all shadow-lg',
-                    audioEnabled
+                    isAudioEnabled
                       ? 'bg-neutral-800/80 hover:bg-neutral-700/80 text-white'
                       : 'bg-red-500 hover:bg-red-600 text-white'
                   )}
-                  disabled={!hasPermissions}
                 >
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+                    {isAudioEnabled ? (
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+                    ) : (
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 19L5 5m14 0v5a7 7 0 01-7 7m0 0a7 7 0 01-7-7V5" />
+                    )}
                   </svg>
                 </button>
                 <button
-                  onClick={toggleVideo}
+                  onClick={handleVideoToggle}
                   className={cn(
                     'p-3 rounded-full transition-all shadow-lg',
-                    videoEnabled
+                    isVideoEnabled
                       ? 'bg-neutral-800/80 hover:bg-neutral-700/80 text-white'
                       : 'bg-red-500 hover:bg-red-600 text-white'
                   )}
-                  disabled={!hasPermissions}
                 >
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" />
+                    {isVideoEnabled ? (
+                      <path strokeLinecap="round" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" />
+                    ) : (
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M12 18.75H4.5a2.25 2.25 0 01-2.25-2.25V9m12.841 9.091L16.5 19.5m-1.409-1.409c.407-.407.659-.97.659-1.591v-9a2.25 2.25 0 00-2.25-2.25h-9c-.621 0-1.184.252-1.591.659m12.182 12.182L2.909 5.909M1.5 4.5l1.409 1.409" />
+                    )}
                   </svg>
                 </button>
               </div>
@@ -296,8 +326,8 @@ export function PreJoinScreen({
                       </svg>
                     </div>
                     <p className="text-white mb-4">{permissionError}</p>
-                    <Button onClick={requestMediaAccess} variant="primary" size="sm">
-                      Reintentar
+                    <Button onClick={() => setPermissionError(null)} variant="primary" size="sm">
+                      Cerrar
                     </Button>
                   </div>
                 </div>
@@ -307,12 +337,12 @@ export function PreJoinScreen({
             {/* Status indicators */}
             <div className="flex items-center justify-center gap-6 text-sm">
               <span className="flex items-center gap-2 text-neutral-600 dark:text-neutral-400">
-                <span className={cn('w-2.5 h-2.5 rounded-full', audioEnabled ? 'bg-green-500' : 'bg-red-500')} />
-                {audioEnabled ? 'Micrófono activo' : 'Micrófono apagado'}
+                <span className={cn('w-2.5 h-2.5 rounded-full', isAudioEnabled ? 'bg-green-500' : 'bg-red-500')} />
+                {isAudioEnabled ? 'Micrófono activo' : 'Micrófono apagado'}
               </span>
               <span className="flex items-center gap-2 text-neutral-600 dark:text-neutral-400">
-                <span className={cn('w-2.5 h-2.5 rounded-full', videoEnabled ? 'bg-green-500' : 'bg-red-500')} />
-                {videoEnabled ? 'Cámara activa' : 'Cámara apagada'}
+                <span className={cn('w-2.5 h-2.5 rounded-full', isVideoEnabled ? 'bg-green-500' : 'bg-red-500')} />
+                {isVideoEnabled ? 'Cámara activa' : 'Cámara apagada'}
               </span>
             </div>
           </div>
@@ -326,26 +356,9 @@ export function PreJoinScreen({
                     Antes de unirte
                   </h2>
                   <p className="text-sm text-neutral-500 dark:text-neutral-400">
-                    {hasPermissions
-                      ? 'Ingresa tu nombre y configura tus dispositivos'
-                      : 'Primero activa tu cámara y micrófono'}
+                    Ingresa tu nombre y configura tus dispositivos
                   </p>
                 </div>
-
-                {/* Botón para activar cámara/micrófono */}
-                {!hasPermissions && (
-                  <Button
-                    onClick={requestMediaAccess}
-                    isLoading={isRequestingPermissions}
-                    className="w-full"
-                    variant="secondary"
-                  >
-                    <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                    Activar cámara y micrófono
-                  </Button>
-                )}
 
                 {/* Nombre */}
                 <Input
@@ -353,7 +366,7 @@ export function PreJoinScreen({
                   placeholder="¿Cómo te llamamos?"
                   value={userName}
                   onChange={(e) => setUserName(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && hasPermissions && handleJoin()}
+                  onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
                   leftIcon={
                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
@@ -361,50 +374,52 @@ export function PreJoinScreen({
                   }
                 />
 
-                {/* Device selectors - solo si tiene permisos */}
-                {hasPermissions && (
-                  <>
-                    <div>
-                      <label className="flex items-center gap-2 text-sm font-medium mb-2 text-neutral-700 dark:text-neutral-300">
-                        <svg className="w-4 h-4 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
-                        </svg>
-                        Micrófono
-                      </label>
-                      <select
-                        value={selectedAudioInput}
-                        onChange={(e) => handleAudioDeviceChange(e.target.value)}
-                        className="w-full h-11 px-3 rounded-xl border border-neutral-200 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-900 text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
-                      >
-                        {audioInputs.map(device => (
-                          <option key={device.deviceId} value={device.deviceId}>
-                            {device.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                {/* Device selectors */}
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium mb-2 text-neutral-700 dark:text-neutral-300">
+                    <svg className="w-4 h-4 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+                    </svg>
+                    Micrófono
+                  </label>
+                  <select
+                    value={selectedAudioId}
+                    onChange={(e) => handleAudioDeviceChange(e.target.value)}
+                    className="w-full h-11 px-3 rounded-xl border border-neutral-200 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-900 text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                  >
+                    {audioInputs.length === 0 && (
+                      <option value="">No hay micrófonos disponibles</option>
+                    )}
+                    {audioInputs.map(device => (
+                      <option key={device.deviceId} value={device.deviceId}>
+                        {device.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-                    <div>
-                      <label className="flex items-center gap-2 text-sm font-medium mb-2 text-neutral-700 dark:text-neutral-300">
-                        <svg className="w-4 h-4 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" />
-                        </svg>
-                        Cámara
-                      </label>
-                      <select
-                        value={selectedVideoInput}
-                        onChange={(e) => handleVideoDeviceChange(e.target.value)}
-                        className="w-full h-11 px-3 rounded-xl border border-neutral-200 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-900 text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
-                      >
-                        {videoInputs.map(device => (
-                          <option key={device.deviceId} value={device.deviceId}>
-                            {device.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </>
-                )}
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium mb-2 text-neutral-700 dark:text-neutral-300">
+                    <svg className="w-4 h-4 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" />
+                    </svg>
+                    Cámara
+                  </label>
+                  <select
+                    value={selectedVideoId}
+                    onChange={(e) => handleVideoDeviceChange(e.target.value)}
+                    className="w-full h-11 px-3 rounded-xl border border-neutral-200 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-900 text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                  >
+                    {videoInputs.length === 0 && (
+                      <option value="">No hay cámaras disponibles</option>
+                    )}
+                    {videoInputs.map(device => (
+                      <option key={device.deviceId} value={device.deviceId}>
+                        {device.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
                 {/* Error */}
                 {error && (
@@ -416,7 +431,7 @@ export function PreJoinScreen({
                 {/* Join button */}
                 <Button
                   onClick={handleJoin}
-                  disabled={!userName.trim() || isLoading || !hasPermissions}
+                  disabled={!userName.trim() || isLoading}
                   isLoading={isLoading}
                   className="w-full mt-2"
                   size="lg"
