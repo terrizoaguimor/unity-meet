@@ -13,7 +13,6 @@ import { PreJoinScreen } from '@/components/room/PreJoinScreen';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { useTelnyxRoom } from '@/hooks/useTelnyxRoom';
-import { useScreenShare } from '@/hooks/useScreenShare';
 import { useChat } from '@/hooks/useChat';
 import { useRoomStore } from '@/stores/roomStore';
 import type { VideoLayout } from '@/types';
@@ -65,23 +64,16 @@ export default function RoomPage() {
     isConnected,
     error: connectionError,
     localStream,
+    presentationTracks,
     isAudioEnabled,
     isVideoEnabled,
+    isScreenSharing,
     connect,
     disconnect,
     toggleAudio,
     toggleVideo,
-    client,
-  } = useTelnyxRoom(telnyxOptions);
-
-  // Screen share - memoizar opciones
-  const screenShareOptions = useMemo(() => ({ client }), [client]);
-  const {
-    isScreenSharing,
-    screenStream,
     toggleScreenShare,
-    stopScreenShare,
-  } = useScreenShare(screenShareOptions);
+  } = useTelnyxRoom(telnyxOptions);
 
   // Chat - memoizar opciones para evitar recreación del hook
   const chatOptions = useMemo(() => ({
@@ -144,7 +136,6 @@ export default function RoomPage() {
 
   // Manejar salir de la sala
   const handleLeave = useCallback(async () => {
-    stopScreenShare();
     disconnect();
 
     // Intentar eliminar la sala (limpieza)
@@ -157,7 +148,7 @@ export default function RoomPage() {
     }
 
     router.push('/');
-  }, [disconnect, stopScreenShare, router, roomId]);
+  }, [disconnect, router, roomId]);
 
   // Confirmar salida
   const confirmLeave = () => {
@@ -211,8 +202,8 @@ export default function RoomPage() {
           <div className="absolute inset-0 z-10 p-4 bg-black/90">
             <ScreenShare
               stream={
-                isScreenSharing
-                  ? screenStream
+                isScreenSharing && presentationTracks.video
+                  ? new MediaStream([presentationTracks.video])
                   : participantsList.find((p) => p.isScreenSharing)?.screenTrack
                     ? new MediaStream([
                         participantsList.find((p) => p.isScreenSharing)!
@@ -226,7 +217,7 @@ export default function RoomPage() {
                   : participantsList.find((p) => p.isScreenSharing)?.name
               }
               isLocal={isScreenSharing}
-              onStopSharing={isScreenSharing ? stopScreenShare : undefined}
+              onStopSharing={isScreenSharing ? toggleScreenShare : undefined}
               className="h-full"
             />
           </div>

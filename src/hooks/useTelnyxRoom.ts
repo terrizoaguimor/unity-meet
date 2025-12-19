@@ -1,38 +1,14 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { TelnyxVideoClient, createTelnyxClient } from '@/lib/telnyx/client';
-import { useRoomStore } from '@/stores/roomStore';
-import type { ConnectionState, Participant } from '@/types';
-
-// Timeout para operaciones asíncronas
-const OPERATION_TIMEOUT = 15000;
-const CONNECT_TIMEOUT = 30000; // WebRTC connect puede tardar más
-
 /**
- * Envolver una promesa con timeout
+ * Telnyx Room Hook - Based on official telnyx-meet implementation
+ * https://github.com/team-telnyx/telnyx-meet
  */
-function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  operationName: string
-): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timeoutId = setTimeout(() => {
-      reject(new Error(`Timeout: ${operationName} tardó más de ${timeoutMs / 1000}s`));
-    }, timeoutMs);
 
-    promise
-      .then((result) => {
-        clearTimeout(timeoutId);
-        resolve(result);
-      })
-      .catch((error) => {
-        clearTimeout(timeoutId);
-        reject(error);
-      });
-  });
-}
+import { useState, useEffect, useCallback, useRef } from 'react';
+import type { Room, State, Participant, Stream } from '@telnyx/video';
+import { useRoomStore } from '@/stores/roomStore';
+import type { ConnectionState, Participant as AppParticipant } from '@/types';
 
 interface UseTelnyxRoomOptions {
   roomId: string;
@@ -41,69 +17,175 @@ interface UseTelnyxRoomOptions {
   onStatusChange?: (status: string) => void;
 }
 
-interface UseTelnyxRoomReturn {
-  // Estado de conexión
+interface LocalTracks {
+  audio: MediaStreamTrack | undefined;
+  video: MediaStreamTrack | undefined;
+}
+
+interface PresentationTracks {
+  audio: MediaStreamTrack | undefined;
+  video: MediaStreamTrack | undefined;
+}
+
+export interface TelnyxRoomState {
+  // Connection
   connectionState: ConnectionState;
   isConnecting: boolean;
   isConnected: boolean;
   error: string | null;
 
-  // Media local
+  // Media
   localStream: MediaStream | null;
+  localTracks: LocalTracks;
+  presentationTracks: PresentationTracks;
   isAudioEnabled: boolean;
   isVideoEnabled: boolean;
+  isScreenSharing: boolean;
 
-  // Acciones
+  // Room data
+  dominantSpeakerId: string | undefined;
+  participantsByActivity: Set<string>;
+
+  // Actions
   connect: () => Promise<void>;
   disconnect: () => void;
   toggleAudio: () => void;
   toggleVideo: () => void;
+  toggleScreenShare: () => void;
 
-  // Cliente para acceso avanzado
-  client: TelnyxVideoClient | null;
+  // Stream management (from Room SDK)
+  addStream: Room['addStream'] | null;
+  removeStream: Room['removeStream'] | null;
+  updateStream: Room['updateStream'] | null;
+  getLocalParticipant: (() => Participant) | null;
+  getParticipantStream: Room['getParticipantStream'] | null;
+
+  // Direct room access
+  room: Room | null;
 }
 
 /**
- * Hook principal para conectar y gestionar una sala de Telnyx
+ * Get user media with proper constraints
+ */
+async function getUserMedia(
+  kind: 'audio' | 'video',
+  deviceId?: string,
+  options?: { isSimulcastEnabled?: boolean }
+): Promise<MediaStreamTrack | undefined> {
+  const constraints: MediaStreamConstraints = {};
+
+  if (kind === 'audio') {
+    constraints.audio = deviceId
+      ? { deviceId, echoCancellation: true, noiseSuppression: true }
+      : { echoCancellation: true, noiseSuppression: true };
+  }
+
+  if (kind === 'video') {
+    const videoConstraints: MediaTrackConstraints = {
+      width: options?.isSimulcastEnabled ? { ideal: 1280 } : { ideal: 1920, min: 1280 },
+      height: options?.isSimulcastEnabled ? { ideal: 720 } : { ideal: 1080, min: 720 },
+      frameRate: { ideal: 30 },
+    };
+
+    if (deviceId) {
+      videoConstraints.deviceId = deviceId;
+    }
+
+    constraints.video = videoConstraints;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    return kind === 'audio' ? stream.getAudioTracks()[0] : stream.getVideoTracks()[0];
+  } catch (error) {
+    console.error(`[useTelnyxRoom] Error getting ${kind}:`, error);
+
+    // Fallback for video
+    if (kind === 'video') {
+      try {
+        const fallbackStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+        });
+        return fallbackStream.getVideoTracks()[0];
+      } catch {
+        return undefined;
+      }
+    }
+
+    return undefined;
+  }
+}
+
+/**
+ * Extract display name from participant context
+ */
+function getParticipantName(context?: string, fallbackId?: string): string {
+  if (context) {
+    try {
+      const parsed = JSON.parse(context);
+      if (parsed.displayName) return parsed.displayName;
+      if (parsed.username) return parsed.username;
+    } catch {
+      // Not valid JSON
+    }
+  }
+  return `Participante ${(fallbackId || 'Anon').slice(0, 6)}`;
+}
+
+/**
+ * Main Telnyx Room Hook
+ * Following the official telnyx-meet pattern
  */
 export function useTelnyxRoom({
   roomId,
   userName,
   autoConnect = false,
   onStatusChange,
-}: UseTelnyxRoomOptions): UseTelnyxRoomReturn {
-  const clientRef = useRef<TelnyxVideoClient | null>(null);
+}: UseTelnyxRoomOptions): TelnyxRoomState {
+  // Room reference
+  const roomRef = useRef<Room | null>(null);
+
+  // State
+  const [state, setState] = useState<State | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   const [error, setError] = useState<string | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+
+  // Track states
+  const [localTracks, setLocalTracks] = useState<LocalTracks>({
+    audio: undefined,
+    video: undefined,
+  });
+  const [presentationTracks, setPresentationTracks] = useState<PresentationTracks>({
+    audio: undefined,
+    video: undefined,
+  });
+
+  // UI states
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
 
-  // Refs para evitar dependencias inestables en callbacks
-  const isAudioEnabledRef = useRef(isAudioEnabled);
-  const isVideoEnabledRef = useRef(isVideoEnabled);
+  // Activity tracking (like telnyx-meet)
+  const [dominantSpeakerId, setDominantSpeakerId] = useState<string | undefined>();
+  const [participantsByActivity, setParticipantsByActivity] = useState<Set<string>>(new Set());
+
+  // Refs for stable callbacks
   const userNameRef = useRef(userName);
   const roomIdRef = useRef(roomId);
   const onStatusChangeRef = useRef(onStatusChange);
 
-  // Mantener refs sincronizados
-  isAudioEnabledRef.current = isAudioEnabled;
-  isVideoEnabledRef.current = isVideoEnabled;
   userNameRef.current = userName;
   roomIdRef.current = roomId;
   onStatusChangeRef.current = onStatusChange;
 
-  // Helper para actualizar status - estable porque usa refs
+  // Status update helper
   const updateStatus = useCallback((status: string) => {
     console.log(`[useTelnyxRoom] ${status}`);
     onStatusChangeRef.current?.(status);
   }, []);
 
-  // No usar destructuring del store - usar getState() directamente en callbacks
-  // Esto evita que los callbacks se recreen cuando el store cambia
-
   /**
-   * Obtener token de acceso del servidor
+   * Get client token from API
    */
   const getToken = useCallback(async (): Promise<string> => {
     const response = await fetch(`/api/rooms/${roomIdRef.current}/token`, {
@@ -121,306 +203,300 @@ export function useTelnyxRoom({
     }
 
     return data.token;
-  }, []); // Sin dependencias - usa ref
-
-  /**
-   * Extraer nombre del contexto del participante
-   */
-  const getParticipantName = (context?: string, fallbackId?: string): string => {
-    if (context) {
-      try {
-        const parsed = JSON.parse(context);
-        if (parsed.displayName) return parsed.displayName;
-      } catch {
-        // Context no es JSON válido
-      }
-    }
-    return `Participante ${(fallbackId || 'Anon').slice(0, 6)}`;
-  };
-
-  /**
-   * Suscribirse a los streams existentes de un participante
-   */
-  const subscribeToExistingStreams = useCallback(async (
-    client: TelnyxVideoClient,
-    participantId: string,
-    streams: Map<string, unknown>
-  ) => {
-    const streamKeys = Array.from(streams.keys());
-    console.log(`[useTelnyxRoom] Subscribing to existing streams for ${participantId}:`, streamKeys);
-    for (const streamKey of streamKeys) {
-      try {
-        console.log(`[useTelnyxRoom] Subscribing to stream: ${streamKey}`);
-        await client.subscribeToParticipant(participantId, streamKey);
-      } catch (err) {
-        console.error(`[useTelnyxRoom] Error subscribing to ${streamKey}:`, err);
-      }
-    }
   }, []);
 
   /**
-   * Configurar listeners de eventos del SDK
-   * Sin dependencias - usa getState() para acciones del store
-   */
-  const setupEventListeners = useCallback(
-    (client: TelnyxVideoClient) => {
-      // Participante unido
-      client.on('participant_joined', (participantId: unknown, state: unknown) => {
-        const id = participantId as string;
-        const stateData = state as {
-          participants: Map<string, {
-            origin: string;
-            context?: string;
-            streams?: Map<string, unknown>;
-          }>
-        };
-        const participantData = stateData.participants.get(id);
-
-        console.log('[useTelnyxRoom] participant_joined:', id, participantData);
-
-        if (participantData && participantData.origin !== 'local') {
-          const participant: Participant = {
-            id,
-            name: getParticipantName(participantData.context, id),
-            isHost: false,
-            isMuted: false,
-            isVideoOff: false,
-            isSpeaking: false,
-            isScreenSharing: false,
-            isHandRaised: false,
-            joinedAt: new Date(),
-          };
-
-          console.log('[useTelnyxRoom] Adding participant:', participant.name);
-          useRoomStore.getState().addParticipant(participant);
-
-          // Subscribe to any existing streams this participant already has
-          if (participantData.streams && participantData.streams.size > 0) {
-            subscribeToExistingStreams(client, id, participantData.streams);
-          }
-        }
-      });
-
-      // Participante salió
-      client.on('participant_left', (participantId: unknown) => {
-        console.log('[useTelnyxRoom] participant_left:', participantId);
-        useRoomStore.getState().removeParticipant(participantId as string);
-      });
-
-      // Stream publicado - suscribirse
-      client.on(
-        'stream_published',
-        async (participantId: unknown, streamKey: unknown, state: unknown) => {
-          const id = participantId as string;
-          const key = streamKey as string;
-          const stateData = state as { participants: Map<string, { origin: string }> };
-          const participant = stateData.participants.get(id);
-
-          console.log('[useTelnyxRoom] stream_published:', id, key, participant?.origin);
-
-          if (participant && participant.origin !== 'local') {
-            try {
-              console.log('[useTelnyxRoom] Subscribing to new stream...');
-              await client.subscribeToParticipant(id, key);
-              console.log('[useTelnyxRoom] Subscription request sent');
-            } catch (err) {
-              console.error('[useTelnyxRoom] Error subscribing:', err);
-            }
-          }
-        }
-      );
-
-      // Suscripción iniciada - obtener stream
-      client.on(
-        'subscription_started',
-        (participantId: unknown, streamKey: unknown) => {
-          const id = participantId as string;
-          const key = streamKey as string;
-
-          console.log('[useTelnyxRoom] subscription_started:', id, key);
-
-          const mediaStream = client.getParticipantMediaStream(id, key);
-          console.log('[useTelnyxRoom] Got MediaStream:', mediaStream ? 'yes' : 'no');
-
-          if (mediaStream) {
-            const audioTracks = mediaStream.getAudioTracks();
-            const videoTracks = mediaStream.getVideoTracks();
-            console.log('[useTelnyxRoom] Audio tracks:', audioTracks.length, 'Video tracks:', videoTracks.length);
-
-            useRoomStore.getState().updateParticipant(id, {
-              audioTrack: audioTracks[0],
-              videoTrack: videoTracks[0],
-            });
-            console.log('[useTelnyxRoom] Participant updated with tracks');
-          }
-        }
-      );
-
-      // Actividad de audio (detectar quién habla)
-      client.on('audio_activity', (participantId: unknown, isSpeaking: unknown) => {
-        useRoomStore.getState().updateParticipant(participantId as string, {
-          isSpeaking: isSpeaking as boolean,
-        });
-      });
-
-      // Desconexión
-      client.on('disconnected', () => {
-        console.log('[useTelnyxRoom] disconnected event');
-        setConnectionState('disconnected');
-        useRoomStore.getState().setConnectionState('disconnected');
-      });
-    },
-    [subscribeToExistingStreams] // Agregar dependencia
-  );
-
-  /**
-   * Conectar a la sala - sin dependencias del store
-   * Con timeouts para evitar que el loading quede colgado
+   * Connect to room and set up all event listeners
+   * Following telnyx-meet connectAndJoinRoom pattern
    */
   const connect = useCallback(async () => {
-    updateStatus('connect() iniciado');
+    updateStatus('Iniciando conexión...');
 
-    if (clientRef.current?.getIsConnected()) {
-      updateStatus('Ya conectado, retornando');
+    if (roomRef.current) {
+      updateStatus('Ya existe una conexión');
       return;
     }
 
     try {
-      updateStatus('Estableciendo estado...');
       setConnectionState('connecting');
       useRoomStore.getState().setConnectionState('connecting');
       setError(null);
 
-      // 1. Obtener token (con timeout)
-      updateStatus('1/7 Obteniendo token...');
-      const token = await withTimeout(
-        getToken(),
-        OPERATION_TIMEOUT,
-        'obtener token'
-      );
-      updateStatus('2/7 Token obtenido');
+      // 1. Get token
+      updateStatus('Obteniendo token...');
+      const token = await getToken();
 
-      // 2. Crear cliente con userName para el contexto
-      const client = createTelnyxClient(roomIdRef.current, token, userNameRef.current);
-      clientRef.current = client;
+      // 2. Initialize room (dynamic import for client-side)
+      updateStatus('Inicializando SDK...');
+      const { initialize } = await import('@telnyx/video');
 
-      // 3. Inicializar SDK (con timeout)
-      updateStatus('3/7 Inicializando SDK...');
-      await withTimeout(
-        client.initialize(),
-        OPERATION_TIMEOUT,
-        'inicializar SDK'
-      );
-      updateStatus('4/7 SDK inicializado');
+      const context = JSON.stringify({
+        displayName: userNameRef.current,
+        username: userNameRef.current,
+        timestamp: Date.now(),
+      });
 
-      // 4. Configurar event listeners
-      setupEventListeners(client);
+      roomRef.current = await initialize({
+        roomId: roomIdRef.current,
+        clientToken: token,
+        context,
+        logLevel: 'DEBUG',
+        enableMessages: true,
+      });
 
-      // 4.5. Pequeña pausa para asegurar que el SDK está listo
-      updateStatus('4/7 Esperando SDK...');
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Get initial state
+      setState(roomRef.current.getState());
 
-      // 5. Conectar a la sala (como en telnyx-meet)
-      updateStatus('5/7 Conectando a la sala (WebRTC)...');
-      console.log('[useTelnyxRoom] Llamando client.connect()...');
-      console.log('[useTelnyxRoom] roomId:', roomIdRef.current);
-      console.log('[useTelnyxRoom] token length:', token.length);
+      // 3. Set up all event listeners (telnyx-meet pattern)
 
-      try {
-        await withTimeout(
-          client.connect(),
-          CONNECT_TIMEOUT,
-          'conectar a la sala (WebRTC)'
-        );
-      } catch (connectError) {
-        console.error('[useTelnyxRoom] Connect error details:', connectError);
-        throw connectError;
-      }
+      // State changed
+      roomRef.current.on('state_changed', (newState) => {
+        console.log('[useTelnyxRoom] state_changed:', newState.status);
+        setState(newState);
+      });
 
-      updateStatus('6/7 Conectado a la sala');
+      // Connected
+      roomRef.current.on('connected', (connectedState) => {
+        console.log('[useTelnyxRoom] connected event');
 
-      // 6. Obtener stream local DESPUÉS de conectar
-      updateStatus('6/7 Obteniendo cámara/micrófono...');
-      const stream = await withTimeout(
-        client.getLocalMediaStream(),
-        OPERATION_TIMEOUT,
-        'acceder a cámara/micrófono'
-      );
-      setLocalStream(stream);
-      updateStatus('6/7 Stream local obtenido');
+        // Initialize participants by activity
+        const localId = roomRef.current!.getLocalParticipant().id;
+        setParticipantsByActivity(new Set([
+          localId,
+          ...Array.from(connectedState.participants.keys()),
+        ]));
 
-      // 7. Publicar stream local (con timeout)
-      updateStatus('7/7 Publicando stream...');
-      await withTimeout(
-        client.publishLocalStream('camera'),
-        OPERATION_TIMEOUT,
-        'publicar stream'
-      );
-      updateStatus('Completado!');
+        // Subscribe to existing streams
+        connectedState.streams.forEach((stream) => {
+          if (stream.participantId === localId) return;
 
-      // 8. Suscribirse a participantes existentes
-      updateStatus('Suscribiendo a participantes existentes...');
-      const roomState = client.getState();
-      if (roomState) {
-        const participantEntries = Array.from(roomState.participants.entries());
-        console.log('[useTelnyxRoom] Checking existing participants:', participantEntries.length);
-        for (const [participantId, participantData] of participantEntries) {
-          // Ignorar participante local
-          if (participantData.origin === 'local') continue;
+          console.log(`[useTelnyxRoom] Subscribing to existing stream: ${stream.participantId}/${stream.key}`);
+          roomRef.current!.addSubscription(stream.participantId, stream.key, {
+            audio: true,
+            video: true,
+          });
 
-          console.log('[useTelnyxRoom] Found existing participant:', participantId);
-
-          // Agregar al store si no existe
-          const existing = useRoomStore.getState().participants.get(participantId);
-          if (!existing) {
-            const participant: Participant = {
-              id: participantId,
-              name: getParticipantName(
-                (participantData as { context?: string }).context,
-                participantId
-              ),
-              isHost: false,
-              isMuted: false,
-              isVideoOff: false,
-              isSpeaking: false,
-              isScreenSharing: false,
-              isHandRaised: false,
-              joinedAt: new Date(),
-            };
-            useRoomStore.getState().addParticipant(participant);
+          // Handle presentation streams
+          if (stream.key === 'presentation') {
+            const presenter = connectedState.participants.get(stream.participantId);
+            console.log('[useTelnyxRoom] Found presenter:', presenter);
           }
+        });
 
-          // Suscribirse a sus streams
-          const participantStreams = (participantData as { streams?: Map<string, unknown> }).streams;
-          if (participantStreams && participantStreams.size > 0) {
-            await subscribeToExistingStreams(client, participantId, participantStreams);
-          }
+        setConnectionState('connected');
+        useRoomStore.getState().setConnectionState('connected');
+      });
+
+      // Disconnected
+      roomRef.current.on('disconnected', (reason) => {
+        console.log('[useTelnyxRoom] disconnected:', reason);
+        setConnectionState('disconnected');
+        setParticipantsByActivity(new Set());
+        useRoomStore.getState().setConnectionState('disconnected');
+      });
+
+      // Participant joined
+      roomRef.current.on('participant_joined', (participantId, joinedState) => {
+        console.log('[useTelnyxRoom] participant_joined:', participantId);
+
+        const participantData = joinedState.participants.get(participantId);
+        if (!participantData) return;
+
+        // Add to activity set
+        setParticipantsByActivity((prev) => {
+          const localId = roomRef.current?.getLocalParticipant().id;
+          return new Set([localId || '', ...Array.from(prev), participantId]);
+        });
+
+        // Add to store
+        const participant: AppParticipant = {
+          id: participantId,
+          name: getParticipantName(participantData.context, participantId),
+          isHost: false,
+          isMuted: false,
+          isVideoOff: false,
+          isSpeaking: false,
+          isScreenSharing: false,
+          isHandRaised: false,
+          joinedAt: new Date(),
+        };
+
+        useRoomStore.getState().addParticipant(participant);
+      });
+
+      // Participant left
+      roomRef.current.on('participant_left', (participantId) => {
+        console.log('[useTelnyxRoom] participant_left:', participantId);
+
+        setParticipantsByActivity((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(participantId);
+          const localId = roomRef.current?.getLocalParticipant().id;
+          return new Set([localId || '', ...Array.from(newSet)]);
+        });
+
+        if (dominantSpeakerId === participantId) {
+          setDominantSpeakerId(undefined);
         }
+
+        useRoomStore.getState().removeParticipant(participantId);
+      });
+
+      // Stream published - subscribe to it
+      roomRef.current.on('stream_published', (participantId, key, publishedState) => {
+        console.log('[useTelnyxRoom] stream_published:', participantId, key);
+
+        const localId = roomRef.current?.getLocalParticipant().id;
+        if (participantId === localId) return;
+
+        // Subscribe to the stream
+        roomRef.current!.addSubscription(participantId, key, {
+          audio: true,
+          video: true,
+        });
+
+        // Track screen sharing
+        if (key === 'presentation') {
+          useRoomStore.getState().updateParticipant(participantId, {
+            isScreenSharing: true,
+          });
+        }
+      });
+
+      // Stream unpublished
+      roomRef.current.on('stream_unpublished', (participantId, key) => {
+        console.log('[useTelnyxRoom] stream_unpublished:', participantId, key);
+
+        if (key === 'presentation') {
+          useRoomStore.getState().updateParticipant(participantId, {
+            isScreenSharing: false,
+          });
+        }
+
+        if (key === 'self' && dominantSpeakerId === participantId) {
+          setDominantSpeakerId(undefined);
+        }
+      });
+
+      // Subscription started - get the actual media stream
+      roomRef.current.on('subscription_started', (participantId, key) => {
+        console.log('[useTelnyxRoom] subscription_started:', participantId, key);
+
+        const stream = roomRef.current?.getParticipantStream(participantId, key);
+        if (stream) {
+          console.log('[useTelnyxRoom] Got stream tracks:', {
+            audio: !!stream.audioTrack,
+            video: !!stream.videoTrack,
+          });
+
+          useRoomStore.getState().updateParticipant(participantId, {
+            audioTrack: stream.audioTrack,
+            videoTrack: stream.videoTrack,
+          });
+        }
+      });
+
+      // Audio activity - track who's speaking
+      roomRef.current.on('audio_activity', (participantId, key) => {
+        const localId = roomRef.current?.getLocalParticipant().id;
+
+        if ((!key || key === 'self') && participantId !== localId) {
+          console.log(`[useTelnyxRoom] ${participantId} is speaking`);
+          setDominantSpeakerId(participantId);
+
+          setParticipantsByActivity((prev) => {
+            return new Set([localId || '', participantId, ...Array.from(prev)]);
+          });
+
+          useRoomStore.getState().updateParticipant(participantId, {
+            isSpeaking: true,
+          });
+
+          // Reset speaking state after a short delay
+          setTimeout(() => {
+            useRoomStore.getState().updateParticipant(participantId, {
+              isSpeaking: false,
+            });
+          }, 2000);
+        }
+      });
+
+      // Track enabled/disabled
+      roomRef.current.on('track_enabled', (participantId, key, kind) => {
+        console.log('[useTelnyxRoom] track_enabled:', participantId, key, kind);
+        if (kind === 'video') {
+          useRoomStore.getState().updateParticipant(participantId, {
+            isVideoOff: false,
+          });
+        }
+        if (kind === 'audio') {
+          useRoomStore.getState().updateParticipant(participantId, {
+            isMuted: false,
+          });
+        }
+      });
+
+      roomRef.current.on('track_disabled', (participantId, key, kind) => {
+        console.log('[useTelnyxRoom] track_disabled:', participantId, key, kind);
+        if (kind === 'video') {
+          useRoomStore.getState().updateParticipant(participantId, {
+            isVideoOff: true,
+          });
+        }
+        if (kind === 'audio') {
+          useRoomStore.getState().updateParticipant(participantId, {
+            isMuted: true,
+          });
+        }
+      });
+
+      // 4. Connect to room
+      updateStatus('Conectando a la sala...');
+      await roomRef.current.connect();
+      updateStatus('Conexión WebRTC establecida');
+
+      // 5. Get local media tracks
+      updateStatus('Obteniendo cámara y micrófono...');
+      const audioTrack = await getUserMedia('audio');
+      const videoTrack = await getUserMedia('video', undefined, { isSimulcastEnabled: true });
+
+      setLocalTracks({ audio: audioTrack, video: videoTrack });
+      setIsAudioEnabled(!!audioTrack);
+      setIsVideoEnabled(!!videoTrack);
+
+      // Create MediaStream for local preview
+      const tracks = [audioTrack, videoTrack].filter(Boolean) as MediaStreamTrack[];
+      if (tracks.length > 0) {
+        const stream = new MediaStream(tracks);
+        setLocalStream(stream);
       }
 
-      // Crear participante local - usar refs para valores actuales
-      const localParticipant: Participant = {
+      // 6. Publish local stream (following telnyx-meet pattern)
+      updateStatus('Publicando stream local...');
+      await roomRef.current.addStream('self', {
+        audio: audioTrack,
+        video: videoTrack
+          ? { track: videoTrack, options: { enableSimulcast: true } }
+          : undefined,
+      });
+
+      // 7. Set up local participant in store
+      const localParticipant: AppParticipant = {
         id: 'local',
         name: userNameRef.current,
         isHost: false,
-        isMuted: !isAudioEnabledRef.current,
-        isVideoOff: !isVideoEnabledRef.current,
+        isMuted: !audioTrack,
+        isVideoOff: !videoTrack,
         isSpeaking: false,
         isScreenSharing: false,
         isHandRaised: false,
         joinedAt: new Date(),
-        audioTrack: stream.getAudioTracks()[0],
-        videoTrack: stream.getVideoTracks()[0],
+        audioTrack,
+        videoTrack,
       };
 
-      // Usar getState() para todas las acciones del store
-      const store = useRoomStore.getState();
-      store.setLocalParticipant(localParticipant);
-      setConnectionState('connected');
-      store.setConnectionState('connected');
-
-      // Establecer información de la sala
-      store.setRoom({
+      useRoomStore.getState().setLocalParticipant(localParticipant);
+      useRoomStore.getState().setRoom({
         id: roomIdRef.current,
         name: `Sala ${roomIdRef.current}`,
         createdAt: new Date(),
@@ -428,131 +504,247 @@ export function useTelnyxRoom({
         isRecording: false,
       });
 
-      updateStatus('Conexión completada exitosamente');
+      updateStatus('Conexión completada');
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Error de conexión';
-      updateStatus(`ERROR: ${errorMessage}`);
-      console.error('[useTelnyxRoom] Error al conectar:', err);
-
-      // Limpiar cliente si existe
-      if (clientRef.current) {
-        try {
-          clientRef.current.disconnect();
-        } catch {
-          // Ignorar errores de desconexión
-        }
-        clientRef.current = null;
-      }
-
-      setError(errorMessage);
+      const message = err instanceof Error ? err.message : 'Error de conexión';
+      console.error('[useTelnyxRoom] Connection error:', err);
+      setError(message);
       setConnectionState('failed');
       useRoomStore.getState().setConnectionState('failed');
+
+      if (roomRef.current) {
+        try {
+          roomRef.current.disconnect();
+        } catch {
+          // Ignore
+        }
+        roomRef.current = null;
+      }
     }
-  }, [getToken, setupEventListeners, updateStatus]); // Solo dependencias estables
+  }, [getToken, updateStatus, dominantSpeakerId]);
 
   /**
-   * Desconectar de la sala - sin dependencias de estado
+   * Disconnect from room
    */
   const disconnect = useCallback(() => {
-    if (clientRef.current) {
-      clientRef.current.disconnect();
-      clientRef.current = null;
+    // Stop local tracks
+    localTracks.audio?.stop();
+    localTracks.video?.stop();
+    presentationTracks.audio?.stop();
+    presentationTracks.video?.stop();
+
+    if (roomRef.current) {
+      roomRef.current.disconnect();
+      roomRef.current = null;
     }
 
-    // Usar setter funcional para acceder al stream actual
-    setLocalStream(currentStream => {
-      if (currentStream) {
-        currentStream.getTracks().forEach((track) => track.stop());
-      }
-      return null;
-    });
-
+    setLocalStream(null);
+    setLocalTracks({ audio: undefined, video: undefined });
+    setPresentationTracks({ audio: undefined, video: undefined });
     setConnectionState('disconnected');
+    setState(null);
 
-    // Usar getState() para acciones del store
-    const store = useRoomStore.getState();
-    store.setConnectionState('disconnected');
-    store.reset();
-  }, []); // Sin dependencias - usa getState()
+    useRoomStore.getState().setConnectionState('disconnected');
+    useRoomStore.getState().reset();
+  }, [localTracks, presentationTracks]);
 
   /**
-   * Toggle de audio - sin dependencias de estado para evitar recreación
+   * Toggle audio (mute/unmute)
    */
   const toggleAudio = useCallback(() => {
-    setIsAudioEnabled(prev => {
-      const newState = !prev;
+    if (localTracks.audio) {
+      // Disable audio
+      localTracks.audio.stop();
+      setLocalTracks((prev) => ({ ...prev, audio: undefined }));
+      setIsAudioEnabled(false);
 
-      if (clientRef.current) {
-        clientRef.current.toggleAudio(newState);
+      // Update stream if room is connected
+      if (roomRef.current && state?.status === 'connected') {
+        roomRef.current.updateStream('self', { audio: undefined, video: localTracks.video });
       }
 
-      // Actualizar estado del participante local usando getState() directamente
-      const store = useRoomStore.getState();
-      if (store.localParticipant) {
-        store.setLocalParticipant({
-          ...store.localParticipant,
-          isMuted: !newState,
-        });
-      }
+      useRoomStore.getState().updateLocalParticipant({ isMuted: true });
+    } else {
+      // Enable audio
+      getUserMedia('audio').then((track) => {
+        if (track) {
+          setLocalTracks((prev) => ({ ...prev, audio: track }));
+          setIsAudioEnabled(true);
 
-      return newState;
-    });
-  }, []); // Sin dependencias - usa refs y getState()
+          if (roomRef.current && state?.status === 'connected') {
+            roomRef.current.updateStream('self', { audio: track, video: localTracks.video });
+          }
+
+          useRoomStore.getState().updateLocalParticipant({ isMuted: false, audioTrack: track });
+        }
+      });
+    }
+  }, [localTracks, state?.status]);
 
   /**
-   * Toggle de video - sin dependencias de estado para evitar recreación
+   * Toggle video (camera on/off)
    */
   const toggleVideo = useCallback(() => {
-    setIsVideoEnabled(prev => {
-      const newState = !prev;
+    if (localTracks.video) {
+      // Disable video
+      localTracks.video.stop();
+      setLocalTracks((prev) => ({ ...prev, video: undefined }));
+      setIsVideoEnabled(false);
 
-      if (clientRef.current) {
-        clientRef.current.toggleVideo(newState);
+      if (roomRef.current && state?.status === 'connected') {
+        roomRef.current.updateStream('self', { audio: localTracks.audio, video: undefined });
       }
 
-      // Actualizar estado del participante local usando getState() directamente
-      const store = useRoomStore.getState();
-      if (store.localParticipant) {
-        store.setLocalParticipant({
-          ...store.localParticipant,
-          isVideoOff: !newState,
+      useRoomStore.getState().updateLocalParticipant({ isVideoOff: true });
+    } else {
+      // Enable video
+      getUserMedia('video', undefined, { isSimulcastEnabled: true }).then((track) => {
+        if (track) {
+          setLocalTracks((prev) => ({ ...prev, video: track }));
+          setIsVideoEnabled(true);
+
+          if (roomRef.current && state?.status === 'connected') {
+            roomRef.current.updateStream('self', {
+              audio: localTracks.audio,
+              video: { track, options: { enableSimulcast: true } },
+            });
+          }
+
+          useRoomStore.getState().updateLocalParticipant({ isVideoOff: false, videoTrack: track });
+
+          // Update local stream
+          setLocalStream((prev) => {
+            if (prev) {
+              // Remove old video tracks
+              prev.getVideoTracks().forEach((t) => prev.removeTrack(t));
+              prev.addTrack(track);
+              return prev;
+            }
+            return new MediaStream([track]);
+          });
+        }
+      });
+    }
+  }, [localTracks, state?.status]);
+
+  /**
+   * Toggle screen sharing (presentation)
+   */
+  const toggleScreenShare = useCallback(() => {
+    if (presentationTracks.video) {
+      // Stop screen sharing
+      presentationTracks.audio?.stop();
+      presentationTracks.video.stop();
+
+      if (roomRef.current) {
+        roomRef.current.removeStream('presentation');
+      }
+
+      setPresentationTracks({ audio: undefined, video: undefined });
+      useRoomStore.getState().updateLocalParticipant({ isScreenSharing: false });
+    } else {
+      // Start screen sharing
+      navigator.mediaDevices
+        .getDisplayMedia({ audio: true, video: true })
+        .then((stream) => {
+          const audioTrack = stream.getAudioTracks()[0];
+          const videoTrack = stream.getVideoTracks()[0];
+
+          setPresentationTracks({
+            audio: audioTrack,
+            video: videoTrack,
+          });
+
+          // Add presentation stream
+          if (roomRef.current) {
+            roomRef.current.addStream('presentation', {
+              audio: audioTrack,
+              video: videoTrack
+                ? { track: videoTrack, options: { enableSimulcast: true } }
+                : undefined,
+            });
+          }
+
+          useRoomStore.getState().updateLocalParticipant({ isScreenSharing: true });
+
+          // Handle when user stops sharing via browser UI
+          videoTrack.onended = () => {
+            if (roomRef.current) {
+              roomRef.current.removeStream('presentation');
+            }
+            setPresentationTracks({ audio: undefined, video: undefined });
+            useRoomStore.getState().updateLocalParticipant({ isScreenSharing: false });
+          };
+        })
+        .catch((err) => {
+          console.error('[useTelnyxRoom] Screen share error:', err);
         });
-      }
+    }
+  }, [presentationTracks]);
 
-      return newState;
-    });
-  }, []); // Sin dependencias - usa refs y getState()
+  // Reset dominant speaker after timeout (telnyx-meet pattern)
+  useEffect(() => {
+    if (!dominantSpeakerId) return;
 
-  // Ref para connect function estable
-  const connectRef = useRef(connect);
-  connectRef.current = connect;
+    const timerId = setTimeout(() => {
+      setDominantSpeakerId(undefined);
+    }, 5000);
 
-  // Auto-conectar si está habilitado - solo depende de autoConnect
+    return () => clearTimeout(timerId);
+  }, [dominantSpeakerId]);
+
+  // Auto-connect if enabled
   useEffect(() => {
     if (autoConnect) {
-      connectRef.current();
+      connect();
     }
 
-    // Cleanup al desmontar
     return () => {
-      if (clientRef.current) {
-        clientRef.current.disconnect();
+      if (roomRef.current) {
+        roomRef.current.disconnect();
+        roomRef.current = null;
       }
     };
-  }, [autoConnect]); // Solo autoConnect como dependencia
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoConnect]);
+
+  // Calculate screen sharing state
+  const isScreenSharing = !!presentationTracks.video;
 
   return {
+    // Connection
     connectionState,
     isConnecting: connectionState === 'connecting',
     isConnected: connectionState === 'connected',
     error,
+
+    // Media
     localStream,
+    localTracks,
+    presentationTracks,
     isAudioEnabled,
     isVideoEnabled,
+    isScreenSharing,
+
+    // Activity
+    dominantSpeakerId,
+    participantsByActivity,
+
+    // Actions
     connect,
     disconnect,
     toggleAudio,
     toggleVideo,
-    client: clientRef.current,
+    toggleScreenShare,
+
+    // Stream management (expose SDK methods)
+    addStream: roomRef.current?.addStream ?? null,
+    removeStream: roomRef.current?.removeStream ?? null,
+    updateStream: roomRef.current?.updateStream ?? null,
+    getLocalParticipant: roomRef.current?.getLocalParticipant ?? null,
+    getParticipantStream: roomRef.current?.getParticipantStream ?? null,
+
+    // Direct room access
+    room: roomRef.current,
   };
 }

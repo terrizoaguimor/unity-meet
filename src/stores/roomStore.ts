@@ -75,6 +75,14 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   setLocalParticipant: (participant: Participant | null) =>
     set({ localParticipant: participant }),
 
+  updateLocalParticipant: (updates: Partial<Participant>) =>
+    set((state) => {
+      if (!state.localParticipant) return state;
+      return {
+        localParticipant: { ...state.localParticipant, ...updates },
+      };
+    }),
+
   // Acciones de UI
   setLayout: (layout: VideoLayout) => set({ layout }),
 
@@ -190,6 +198,7 @@ export const getStoreActions = () => {
     removeParticipant: state.removeParticipant,
     updateParticipant: state.updateParticipant,
     setLocalParticipant: state.setLocalParticipant,
+    updateLocalParticipant: state.updateLocalParticipant,
     setLayout: state.setLayout,
     setPinnedParticipant: state.setPinnedParticipant,
     toggleChat: state.toggleChat,

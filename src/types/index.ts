@@ -152,6 +152,7 @@ export interface RoomState {
   removeParticipant: (participantId: string) => void;
   updateParticipant: (participantId: string, updates: Partial<Participant>) => void;
   setLocalParticipant: (participant: Participant | null) => void;
+  updateLocalParticipant: (updates: Partial<Participant>) => void;
   setLayout: (layout: VideoLayout) => void;
   setPinnedParticipant: (participantId: string | null) => void;
   toggleChat: () => void;
