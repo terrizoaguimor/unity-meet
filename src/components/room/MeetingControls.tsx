@@ -12,6 +12,11 @@ interface MeetingControlsProps {
   isVideoEnabled: boolean;
   isScreenSharing: boolean;
 
+  // Recording
+  isRecording?: boolean;
+  recordingDuration?: number;
+  onToggleRecording?: () => void;
+
   // Callbacks
   onToggleAudio: () => void;
   onToggleVideo: () => void;
@@ -31,6 +36,9 @@ export function MeetingControls({
   isAudioEnabled,
   isVideoEnabled,
   isScreenSharing,
+  isRecording,
+  recordingDuration,
+  onToggleRecording,
   onToggleAudio,
   onToggleVideo,
   onToggleScreenShare,
@@ -88,12 +96,15 @@ export function MeetingControls({
       isVideoEnabled={isVideoEnabled}
       isScreenSharing={isScreenSharing}
       isHandRaised={isHandRaised}
+      isRecording={isRecording}
+      recordingDuration={recordingDuration}
       participantCount={participantCount}
       unreadMessages={unreadMessages}
       onToggleAudio={onToggleAudio}
       onToggleVideo={onToggleVideo}
       onToggleScreenShare={onToggleScreenShare}
       onToggleHandRaise={toggleHandRaise}
+      onToggleRecording={onToggleRecording}
       onReaction={handleReaction}
       onToggleChat={toggleChat}
       onToggleParticipants={toggleParticipants}

@@ -15,6 +15,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { useTelnyxRoom } from '@/hooks/useTelnyxRoom';
 import { useChat } from '@/hooks/useChat';
+import { useRecording } from '@/hooks/useRecording';
 import { useRoomStore } from '@/stores/roomStore';
 import type { VideoLayout } from '@/types';
 
@@ -82,6 +83,23 @@ export default function RoomPage() {
     participantName: userName,
   }), [userName]);
   const { sendMessage } = useChat(chatOptions);
+
+  // Recording
+  const {
+    isRecording,
+    duration: recordingDuration,
+    startRecording,
+    stopRecording,
+  } = useRecording({ roomId });
+
+  // Toggle recording
+  const handleToggleRecording = useCallback(() => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  }, [isRecording, startRecording, stopRecording]);
 
   // Cargar información de la sala
   useEffect(() => {
@@ -276,6 +294,9 @@ export default function RoomPage() {
           isAudioEnabled={isAudioEnabled}
           isVideoEnabled={isVideoEnabled}
           isScreenSharing={isScreenSharing}
+          isRecording={isRecording}
+          recordingDuration={recordingDuration}
+          onToggleRecording={handleToggleRecording}
           onToggleAudio={toggleAudio}
           onToggleVideo={toggleVideo}
           onToggleScreenShare={toggleScreenShare}
