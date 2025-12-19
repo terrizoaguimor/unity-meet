@@ -11,9 +11,13 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { name, maxParticipants = 50 } = body;
 
-    // Generar nombre único para la sala
+    // Generar ID único y nombre para la sala
     const roomId = generateRoomId();
-    const uniqueName = name || `Unity Meet - ${roomId}`;
+    const timestamp = Date.now().toString(36);
+    // Siempre agregar un sufijo único para evitar colisiones
+    const uniqueName = name
+      ? `${name} (${roomId})`
+      : `Unity Meet - ${roomId}-${timestamp}`;
 
     // URL base de la aplicación
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';

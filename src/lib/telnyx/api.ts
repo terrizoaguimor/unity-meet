@@ -50,9 +50,22 @@ class TelnyxAPI {
         statusText: response.statusText,
         errors: errorData.errors,
       });
-      const errorMessage = errorData.errors?.[0]?.detail ||
-                          errorData.errors?.[0]?.title ||
-                          `Error ${response.status}: ${response.statusText}`;
+
+      // Handle specific error messages
+      let errorMessage = `Error ${response.status}: ${response.statusText}`;
+      if (errorData.errors) {
+        // Check for array format
+        if (Array.isArray(errorData.errors) && errorData.errors[0]) {
+          errorMessage = errorData.errors[0].detail || errorData.errors[0].title || errorMessage;
+        }
+        // Check for object format (like unique_name errors)
+        else if (typeof errorData.errors === 'object') {
+          const firstKey = Object.keys(errorData.errors)[0];
+          if (firstKey && Array.isArray(errorData.errors[firstKey])) {
+            errorMessage = `${firstKey}: ${errorData.errors[firstKey][0]}`;
+          }
+        }
+      }
       throw new Error(errorMessage);
     }
 
