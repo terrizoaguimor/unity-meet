@@ -44,7 +44,7 @@ export async function GET(
       const options = poll.options as string[];
       const results = options.map((option, index) => ({
         option,
-        votes: poll.responses.filter((r) => r.optionId === String(index)).length,
+        votes: poll.responses.filter((r: { optionId: string }) => r.optionId === String(index)).length,
       }));
 
       return {
@@ -279,7 +279,7 @@ export async function PATCH(
     const options = updatedPoll.options as string[];
     const results = options.map((option, index) => ({
       option,
-      votes: updatedPoll.responses.filter((r) => r.optionId === String(index)).length,
+      votes: updatedPoll.responses.filter((r: { optionId: string }) => r.optionId === String(index)).length,
     }));
 
     return NextResponse.json({

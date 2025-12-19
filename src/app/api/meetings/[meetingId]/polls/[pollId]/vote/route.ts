@@ -114,7 +114,7 @@ export async function POST(
 
     const results = options.map((option, index) => ({
       option,
-      votes: responses.filter((r) => r.optionId === String(index)).length,
+      votes: responses.filter((r: { optionId: string }) => r.optionId === String(index)).length,
     }));
 
     return NextResponse.json({
