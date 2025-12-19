@@ -114,7 +114,7 @@ export default function RoomPage() {
 
   // Manejar unirse a la sala
   const handleJoin = useCallback(
-    async (name: string) => {
+    async (name: string, _settings?: { audioEnabled: boolean; videoEnabled: boolean; audioDeviceId?: string; videoDeviceId?: string }) => {
       setUserName(name);
       setJoinError(null);
 

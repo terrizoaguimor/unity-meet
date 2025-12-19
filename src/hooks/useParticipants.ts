@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { useRoomStore, useParticipantsList, usePinnedParticipant } from '@/stores/roomStore';
 import type { Participant, VideoLayout } from '@/types';
 
@@ -37,8 +37,14 @@ export function useParticipants(): UseParticipantsReturn {
   const pinnedParticipant = usePinnedParticipant();
   const pinnedParticipantId = useRoomStore((state) => state.pinnedParticipantId);
   const layout = useRoomStore((state) => state.layout);
-  const setLayout = useRoomStore((state) => state.setLayout);
-  const setPinnedParticipant = useRoomStore((state) => state.setPinnedParticipant);
+
+  // Usar refs para acciones - evita re-renders cuando el store cambia
+  const actionsRef = useRef({
+    setLayout: useRoomStore.getState().setLayout,
+    setPinnedParticipant: useRoomStore.getState().setPinnedParticipant,
+  });
+  const setLayout = actionsRef.current.setLayout;
+  const setPinnedParticipant = actionsRef.current.setPinnedParticipant;
 
   // Contar participantes (incluyendo local)
   const participantCount = useMemo(() => {

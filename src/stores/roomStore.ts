@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { useShallow } from 'zustand/react/shallow';
 import type {
   RoomState,
   Room,
@@ -124,21 +125,49 @@ export const useRoomStore = create<RoomState>((set, get) => ({
 
 /**
  * Selectores útiles para componentes
+ * Usar useShallow para evitar re-renders cuando arrays/objects son iguales
  */
 export const useParticipantsList = () =>
-  useRoomStore((state) => Array.from(state.participants.values()));
+  useRoomStore(
+    useShallow((state) => Array.from(state.participants.values()))
+  );
 
 export const useParticipantCount = () =>
   useRoomStore((state) => state.participants.size);
 
 export const usePinnedParticipant = () =>
-  useRoomStore((state) => {
-    if (!state.pinnedParticipantId) return null;
-    return state.participants.get(state.pinnedParticipantId) || null;
-  });
+  useRoomStore(
+    useShallow((state) => {
+      if (!state.pinnedParticipantId) return null;
+      return state.participants.get(state.pinnedParticipantId) || null;
+    })
+  );
 
 export const useIsConnected = () =>
   useRoomStore((state) => state.connectionState === 'connected');
 
 export const useUnreadMessageCount = () =>
   useRoomStore((state) => state.unreadMessages);
+
+/**
+ * Obtener acciones del store de forma estable (sin causar re-renders)
+ */
+export const getStoreActions = () => {
+  const state = useRoomStore.getState();
+  return {
+    setRoom: state.setRoom,
+    setConnectionState: state.setConnectionState,
+    addParticipant: state.addParticipant,
+    removeParticipant: state.removeParticipant,
+    updateParticipant: state.updateParticipant,
+    setLocalParticipant: state.setLocalParticipant,
+    setLayout: state.setLayout,
+    setPinnedParticipant: state.setPinnedParticipant,
+    toggleChat: state.toggleChat,
+    toggleParticipantsList: state.toggleParticipantsList,
+    toggleSettings: state.toggleSettings,
+    addMessage: state.addMessage,
+    markMessagesAsRead: state.markMessagesAsRead,
+    reset: state.reset,
+  };
+};
