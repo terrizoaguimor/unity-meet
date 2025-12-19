@@ -26,6 +26,23 @@ export function VideoGrid({ className }: VideoGridProps) {
     layout,
   } = useParticipants();
 
+  // Debug logging
+  useEffect(() => {
+    console.log('[VideoGrid] Rendering with:', {
+      participantCount,
+      sortedParticipantsCount: sortedParticipants.length,
+      participants: sortedParticipants.map(p => ({
+        id: p.id,
+        name: p.name,
+        hasVideoTrack: !!p.videoTrack,
+        hasAudioTrack: !!p.audioTrack,
+        isVideoOff: p.isVideoOff,
+      })),
+      layout,
+      dataCount: getGridDataCount(participantCount),
+    });
+  }, [sortedParticipants, participantCount, layout]);
+
   // Animar entrada de nuevos participantes
   useEffect(() => {
     if (!gridRef.current) return;

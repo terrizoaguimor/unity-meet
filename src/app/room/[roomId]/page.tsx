@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { VideoGrid } from '@/components/video/VideoGrid';
 import { ScreenShare } from '@/components/video/ScreenShare';
+import { RoomAudio } from '@/components/room/RoomAudio';
 import { RoomHeader } from '@/components/room/RoomHeader';
 import { MeetingControls } from '@/components/room/MeetingControls';
 import { ChatPanel } from '@/components/room/ChatPanel';
@@ -230,6 +231,9 @@ export default function RoomPage() {
             />
           </div>
         )}
+
+        {/* Audio for remote participants */}
+        <RoomAudio />
 
         {/* Video Grid */}
         <VideoGrid

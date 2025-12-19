@@ -52,25 +52,53 @@ export function VideoTile({
     }
   }, [onReaction]);
 
-  // Asignar el video track al elemento cuando cambie
+  // Asignar video track al elemento cuando cambie
+  // Audio is handled separately by RoomAudio component (Telnyx pattern)
   useEffect(() => {
     const videoElement = videoRef.current;
+
+    console.log(`[VideoTile] ${participant.name} (${participant.id}):`, {
+      hasVideoElement: !!videoElement,
+      hasVideoTrack: !!participant.videoTrack,
+      isLocal,
+      videoTrackState: participant.videoTrack?.readyState,
+    });
+
+    // Handle video track
     if (videoElement && participant.videoTrack) {
-      const stream = new MediaStream([participant.videoTrack]);
-      videoElement.srcObject = stream;
+      const videoStream = new MediaStream([participant.videoTrack]);
+      videoElement.srcObject = videoStream;
       setIsLoading(true);
 
-      const handlePlaying = () => setIsLoading(false);
-      videoElement.addEventListener('playing', handlePlaying);
+      console.log(`[VideoTile] Set video srcObject for ${participant.name}`);
 
+      const handlePlaying = () => {
+        console.log(`[VideoTile] Video playing for ${participant.name}`);
+        setIsLoading(false);
+      };
+
+      const handleError = (e: Event) => {
+        console.error(`[VideoTile] Video error for ${participant.name}:`, e);
+      };
+
+      videoElement.addEventListener('playing', handlePlaying);
+      videoElement.addEventListener('error', handleError);
+
+      // Try to play the video
+      videoElement.play().catch(err => {
+        console.error(`[VideoTile] Video play failed for ${participant.name}:`, err);
+      });
+
+      // Cleanup for video
       return () => {
         videoElement.removeEventListener('playing', handlePlaying);
+        videoElement.removeEventListener('error', handleError);
         videoElement.srcObject = null;
       };
     } else {
       setIsLoading(false);
     }
-  }, [participant.videoTrack]);
+  }, [participant.videoTrack, participant.name, participant.id, isLocal]);
 
   const showVideo = !participant.isVideoOff && participant.videoTrack;
 
@@ -104,7 +132,7 @@ export function VideoTile({
       {/* Floating Reactions */}
       <FloatingReactions reactions={reactions} onReactionComplete={removeReaction} />
 
-      {/* Video */}
+      {/* Video - Audio is handled by RoomAudio component */}
       {showVideo ? (
         <>
           <video
