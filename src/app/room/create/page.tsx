@@ -24,32 +24,22 @@ export default function CreateRoomPage() {
   const [enableWaitingRoom, setEnableWaitingRoom] = useState(false);
   const [maxParticipants, setMaxParticipants] = useState(50);
 
-  // Crear sala
+  // Crear sala - JaaS no requiere crear sala en el servidor
+  // Solo generamos un ID único y redirigimos
   const handleCreateRoom = async () => {
     setIsCreating(true);
     setError(null);
 
     try {
-      const response = await fetch('/api/rooms', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: roomName || undefined,
-          maxParticipants,
-          enableRecording,
-        }),
-      });
+      // Generar ID único para la sala
+      const roomId = roomName
+        ? roomName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+        : `room-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
 
-      const data = await response.json();
-
-      if (data.success) {
-        router.push(`/room/${data.room.id}`);
-      } else {
-        setError(data.error || 'Error al crear la sala');
-      }
+      // Con JaaS, la sala se crea automáticamente cuando alguien se une
+      router.push(`/room/${roomId}`);
     } catch {
-      setError('Error de conexión. Intenta de nuevo.');
-    } finally {
+      setError('Error al crear la sala. Intenta de nuevo.');
       setIsCreating(false);
     }
   };

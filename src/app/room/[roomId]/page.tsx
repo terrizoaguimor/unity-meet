@@ -1,346 +1,203 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { VideoGrid } from '@/components/video/VideoGrid';
-import { ScreenShare } from '@/components/video/ScreenShare';
-import { FloatingLocalVideo } from '@/components/video/FloatingLocalVideo';
-import { RoomAudio } from '@/components/room/RoomAudio';
-import { RoomHeader } from '@/components/room/RoomHeader';
-import { MeetingControls } from '@/components/room/MeetingControls';
-import { ChatPanel } from '@/components/room/ChatPanel';
-import { ParticipantsList } from '@/components/room/ParticipantsList';
-import { PreJoinScreen } from '@/components/room/PreJoinScreen';
-import { Modal } from '@/components/ui/Modal';
-import { Button } from '@/components/ui/Button';
-import { useTelnyxRoom } from '@/hooks/useTelnyxRoom';
-import { useChat } from '@/hooks/useChat';
-import { useRecording } from '@/hooks/useRecording';
-import { useRoomStore } from '@/stores/roomStore';
-import type { VideoLayout } from '@/types';
+import { JaaSMeetingRoom } from '@/components/room/JaaSMeetingRoom';
+
+interface PreJoinState {
+  userName: string;
+  isLoading: boolean;
+  error: string | null;
+}
 
 /**
- * Página principal de la sala de videoconferencia
+ * Página principal de la sala de videoconferencia con JaaS
  */
 export default function RoomPage() {
   const params = useParams();
   const router = useRouter();
   const roomId = params.roomId as string;
 
-  // Estados locales
+  // Estados
   const [hasJoined, setHasJoined] = useState(false);
-  const [userName, setUserName] = useState('');
-  const [roomName, setRoomName] = useState('');
-  const [startTime, setStartTime] = useState<Date | null>(null);
-  const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
-  const [joinError, setJoinError] = useState<string | null>(null);
-  const [isLoadingRoom, setIsLoadingRoom] = useState(true);
-  const [debugStatus, setDebugStatus] = useState<string>('');
-
-  // Store - usar selectores individuales para evitar re-renders innecesarios
-  const room = useRoomStore(state => state.room);
-  const isChatOpen = useRoomStore(state => state.isChatOpen);
-  const isParticipantsListOpen = useRoomStore(state => state.isParticipantsListOpen);
-  const messages = useRoomStore(state => state.messages);
-  const participants = useRoomStore(state => state.participants);
-  const localParticipant = useRoomStore(state => state.localParticipant);
-  const layout = useRoomStore(state => state.layout);
-
-  // Acciones del store - obtener una sola vez con ref
-  const storeActionsRef = useRef(useRoomStore.getState());
-  const toggleChat = storeActionsRef.current.toggleChat;
-  const toggleParticipantsList = storeActionsRef.current.toggleParticipantsList;
-  const setLayout = storeActionsRef.current.setLayout;
-
-  // Hook principal de Telnyx - memoizar opciones
-  const telnyxOptions = useMemo(() => ({
-    roomId,
-    userName,
-    autoConnect: false,
-    onStatusChange: setDebugStatus,
-  }), [roomId, userName]);
-
-  const {
-    connectionState,
-    isConnecting,
-    isConnected,
-    error: connectionError,
-    localStream,
-    presentationTracks,
-    isAudioEnabled,
-    isVideoEnabled,
-    isScreenSharing,
-    connect,
-    disconnect,
-    toggleAudio,
-    toggleVideo,
-    toggleScreenShare,
-  } = useTelnyxRoom(telnyxOptions);
-
-  // Chat - memoizar opciones para evitar recreación del hook
-  const chatOptions = useMemo(() => ({
-    participantId: 'local' as const,
-    participantName: userName,
-  }), [userName]);
-  const { sendMessage } = useChat(chatOptions);
-
-  // Recording - pasar localStream para grabar directamente sin pedir pantalla
-  const {
-    isRecording,
-    duration: recordingDuration,
-    startRecording,
-    stopRecording,
-  } = useRecording({ roomId, localStream });
-
-  // Toggle recording
-  const handleToggleRecording = useCallback(() => {
-    if (isRecording) {
-      stopRecording();
-    } else {
-      startRecording();
-    }
-  }, [isRecording, startRecording, stopRecording]);
-
-  // Cargar información de la sala
-  useEffect(() => {
-    const fetchRoom = async () => {
-      try {
-        setIsLoadingRoom(true);
-        const response = await fetch(`/api/rooms/${roomId}`);
-        const data = await response.json();
-
-        if (data.success) {
-          setRoomName(data.room.unique_name);
-        } else {
-          setJoinError('Sala no encontrada');
-        }
-      } catch {
-        setJoinError('Error al cargar la sala');
-      } finally {
-        setIsLoadingRoom(false);
-      }
-    };
-
-    if (roomId) {
-      fetchRoom();
-    }
-  }, [roomId]);
+  const [jwt, setJwt] = useState<string | null>(null);
+  const [preJoin, setPreJoin] = useState<PreJoinState>({
+    userName: '',
+    isLoading: false,
+    error: null,
+  });
 
   // Manejar unirse a la sala
-  const handleJoin = useCallback(
-    async (name: string, _settings?: { audioEnabled: boolean; videoEnabled: boolean; audioDeviceId?: string; videoDeviceId?: string }) => {
-      console.log('[RoomPage] handleJoin called with name:', name);
-      setDebugStatus('Iniciando...');
-      setUserName(name);
-      setJoinError(null);
+  const handleJoin = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
 
-      try {
-        setDebugStatus('Llamando a connect()...');
-        console.log('[RoomPage] Calling connect()...');
-        await connect();
-        console.log('[RoomPage] connect() completed successfully');
-        setDebugStatus('Conectado!');
-        setHasJoined(true);
-        setStartTime(new Date());
-      } catch (err) {
-        console.error('[RoomPage] connect() failed:', err);
-        setDebugStatus(`Error: ${err instanceof Error ? err.message : 'desconocido'}`);
-        setJoinError(
-          err instanceof Error ? err.message : 'Error al unirse a la sala'
-        );
-      }
-    },
-    [connect]
-  );
-
-  // Manejar salir de la sala
-  const handleLeave = useCallback(async () => {
-    disconnect();
-
-    // Intentar eliminar la sala (limpieza)
-    // La sala también se eliminará via webhook cuando la sesión termine
-    try {
-      await fetch(`/api/rooms/${roomId}`, { method: 'DELETE' });
-    } catch (err) {
-      // Ignorar errores de eliminación - el webhook lo manejará
-      console.log('Room cleanup delegated to webhook');
+    if (!preJoin.userName.trim()) {
+      setPreJoin(prev => ({ ...prev, error: 'Por favor ingresa tu nombre' }));
+      return;
     }
 
+    setPreJoin(prev => ({ ...prev, isLoading: true, error: null }));
+
+    try {
+      // Obtener JWT token del servidor
+      const response = await fetch('/api/jaas/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomName: roomId,
+          userName: preJoin.userName,
+          moderator: true, // First person is moderator
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to get token');
+      }
+
+      setJwt(data.token);
+      setHasJoined(true);
+    } catch (err) {
+      console.error('[RoomPage] Failed to join:', err);
+      setPreJoin(prev => ({
+        ...prev,
+        isLoading: false,
+        error: err instanceof Error ? err.message : 'Error al unirse a la sala',
+      }));
+    }
+  }, [preJoin.userName, roomId]);
+
+  // Manejar salir de la sala
+  const handleLeave = useCallback(() => {
     router.push('/');
-  }, [disconnect, router, roomId]);
+  }, [router]);
 
-  // Confirmar salida
-  const confirmLeave = () => {
-    setIsLeaveModalOpen(true);
-  };
-
-  // Cambiar layout
-  const handleToggleLayout = () => {
-    const layouts: VideoLayout[] = ['grid', 'speaker', 'sidebar'];
-    const currentIndex = layouts.indexOf(layout);
-    const nextIndex = (currentIndex + 1) % layouts.length;
-    setLayout(layouts[nextIndex]);
-  };
-
-  // Lista de participantes para el componente - memoizada
-  const participantsList = useMemo(
-    () => Array.from(participants.values()),
-    [participants]
-  );
-
-  // Si no ha entrado aún, mostrar pantalla de pre-join
-  if (!hasJoined) {
+  // Pantalla de pre-join
+  if (!hasJoined || !jwt) {
     return (
-      <PreJoinScreen
-        roomName={isLoadingRoom ? 'Cargando...' : roomName}
-        onJoin={handleJoin}
-        isLoading={isConnecting || isLoadingRoom}
-        error={joinError || connectionError}
-        debugStatus={debugStatus}
-      />
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center p-4">
+        <div className="w-full max-w-md">
+          {/* Logo/Header */}
+          <div className="text-center mb-8">
+            <h1 className="text-4xl font-bold text-white mb-2">Unity Meet</h1>
+            <p className="text-gray-400">Powered by JaaS</p>
+          </div>
+
+          {/* Card */}
+          <div className="bg-gray-800/50 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-gray-700/50">
+            <h2 className="text-2xl font-semibold text-white mb-2">
+              Unirse a la reunión
+            </h2>
+            <p className="text-gray-400 mb-6">
+              Sala: <span className="text-blue-400 font-mono">{roomId}</span>
+            </p>
+
+            <form onSubmit={handleJoin} className="space-y-6">
+              {/* Name input */}
+              <div>
+                <label
+                  htmlFor="userName"
+                  className="block text-sm font-medium text-gray-300 mb-2"
+                >
+                  Tu nombre
+                </label>
+                <input
+                  type="text"
+                  id="userName"
+                  value={preJoin.userName}
+                  onChange={(e) =>
+                    setPreJoin(prev => ({ ...prev, userName: e.target.value }))
+                  }
+                  placeholder="Ingresa tu nombre"
+                  className="w-full px-4 py-3 bg-gray-700/50 border border-gray-600 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  disabled={preJoin.isLoading}
+                  autoFocus
+                />
+              </div>
+
+              {/* Error message */}
+              {preJoin.error && (
+                <div className="p-4 bg-red-500/20 border border-red-500/50 rounded-xl">
+                  <p className="text-red-400 text-sm">{preJoin.error}</p>
+                </div>
+              )}
+
+              {/* Join button */}
+              <button
+                type="submit"
+                disabled={preJoin.isLoading || !preJoin.userName.trim()}
+                className="w-full py-4 px-6 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all duration-200 flex items-center justify-center gap-3"
+              >
+                {preJoin.isLoading ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Conectando...
+                  </>
+                ) : (
+                  <>
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
+                      />
+                    </svg>
+                    Unirse a la reunión
+                  </>
+                )}
+              </button>
+            </form>
+
+            {/* Back link */}
+            <div className="mt-6 text-center">
+              <button
+                onClick={() => router.push('/')}
+                className="text-gray-400 hover:text-white text-sm transition-colors"
+              >
+                ← Volver al inicio
+              </button>
+            </div>
+          </div>
+
+          {/* Features info */}
+          <div className="mt-8 grid grid-cols-3 gap-4 text-center">
+            <div className="p-4 bg-gray-800/30 rounded-xl">
+              <div className="text-2xl mb-2">🎥</div>
+              <p className="text-gray-400 text-xs">Video HD</p>
+            </div>
+            <div className="p-4 bg-gray-800/30 rounded-xl">
+              <div className="text-2xl mb-2">🔴</div>
+              <p className="text-gray-400 text-xs">Grabación</p>
+            </div>
+            <div className="p-4 bg-gray-800/30 rounded-xl">
+              <div className="text-2xl mb-2">🖥️</div>
+              <p className="text-gray-400 text-xs">Compartir pantalla</p>
+            </div>
+          </div>
+        </div>
+      </div>
     );
   }
 
+  // Meeting room
   return (
-    <div className="flex flex-col h-screen video-room-bg">
-      {/* Header */}
-      <RoomHeader
-        roomName={roomName || `Sala ${roomId}`}
-        roomId={roomId}
-        participantCount={participantsList.length + 1}
-        startTime={startTime || undefined}
-        isRecording={room?.isRecording}
-        onToggleLayout={handleToggleLayout}
-        layout={layout}
+    <div className="h-screen w-screen overflow-hidden bg-gray-900">
+      <JaaSMeetingRoom
+        roomName={roomId}
+        userName={preJoin.userName}
+        jwt={jwt}
+        onReadyToClose={handleLeave}
+        onRecordingStatusChanged={(isRecording) => {
+          console.log('[RoomPage] Recording status:', isRecording);
+        }}
       />
-
-      {/* Área principal de video */}
-      <main className="flex-1 relative overflow-hidden flex flex-col">
-        {/* Screen share layout (si está activo) */}
-        {(isScreenSharing || participantsList.some((p) => p.isScreenSharing)) ? (
-          <>
-            {/* Screen share a pantalla completa */}
-            <div className="flex-1 p-2">
-              <ScreenShare
-                stream={
-                  isScreenSharing && presentationTracks.video
-                    ? new MediaStream([presentationTracks.video])
-                    : participantsList.find((p) => p.isScreenSharing)?.screenTrack
-                      ? new MediaStream([
-                          participantsList.find((p) => p.isScreenSharing)!
-                            .screenTrack!,
-                        ])
-                      : null
-                }
-                participantName={
-                  isScreenSharing
-                    ? userName
-                    : participantsList.find((p) => p.isScreenSharing)?.name
-                }
-                isLocal={isScreenSharing}
-                onStopSharing={isScreenSharing ? toggleScreenShare : undefined}
-                className="h-full"
-              />
-            </div>
-
-            {/* Video local flotante estilo Zoom */}
-            <FloatingLocalVideo participant={localParticipant} />
-          </>
-        ) : (
-          /* Video Grid normal (sin screen share) */
-          <VideoGrid localStream={localStream} />
-        )}
-
-        {/* Audio for remote participants */}
-        <RoomAudio />
-
-        {/* Indicador de estado de conexión */}
-        {connectionState === 'reconnecting' && (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-yellow-500 text-white rounded-lg shadow-lg flex items-center gap-2 animate-pulse">
-            <svg
-              className="animate-spin h-4 w-4"
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-              />
-            </svg>
-            Reconectando...
-          </div>
-        )}
-
-        {connectionState === 'failed' && (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-red-500 text-white rounded-lg shadow-lg">
-            Error de conexión. Intenta recargar la página.
-          </div>
-        )}
-      </main>
-
-      {/* Controles de reunión */}
-      <footer className="flex justify-center py-4 px-4">
-        <MeetingControls
-          isAudioEnabled={isAudioEnabled}
-          isVideoEnabled={isVideoEnabled}
-          isScreenSharing={isScreenSharing}
-          isRecording={isRecording}
-          recordingDuration={recordingDuration}
-          onToggleRecording={handleToggleRecording}
-          onToggleAudio={toggleAudio}
-          onToggleVideo={toggleVideo}
-          onToggleScreenShare={toggleScreenShare}
-          onLeave={confirmLeave}
-          roomId={roomId}
-        />
-      </footer>
-
-      {/* Panel de Chat */}
-      <ChatPanel
-        messages={messages}
-        onSendMessage={sendMessage}
-        currentUserId="local"
-        isOpen={isChatOpen}
-        onClose={toggleChat}
-      />
-
-      {/* Lista de Participantes */}
-      <ParticipantsList
-        participants={participantsList}
-        localParticipant={localParticipant}
-        isOpen={isParticipantsListOpen}
-        onClose={toggleParticipantsList}
-      />
-
-      {/* Modal de confirmación para salir */}
-      <Modal
-        isOpen={isLeaveModalOpen}
-        onClose={() => setIsLeaveModalOpen(false)}
-        title="¿Salir de la reunión?"
-        size="sm"
-      >
-        <p className="text-gray-600 dark:text-gray-300 mb-6">
-          Estás a punto de abandonar esta reunión. ¿Estás seguro?
-        </p>
-        <div className="flex gap-3 justify-end">
-          <Button variant="ghost" onClick={() => setIsLeaveModalOpen(false)}>
-            Cancelar
-          </Button>
-          <Button variant="danger" onClick={handleLeave}>
-            Salir de la reunión
-          </Button>
-        </div>
-      </Modal>
     </div>
   );
 }

@@ -12,6 +12,7 @@
     "@aws-sdk/client-s3": "^3.955.0",
     "@aws-sdk/lib-storage": "^3.955.0",
     "@aws-sdk/s3-request-presigner": "^3.955.0",
+    "@jitsi/react-sdk": "^1.4.4",
     "@tailwindcss/postcss": "^4.1.18",
     "@telnyx/video": "^1.0.2",
     "@types/node": "^22.10.2",
@@ -21,6 +22,7 @@
     "eslint": "^8.57.1",
     "eslint-config-next": "14.2.35",
     "gsap": "^3.12.5",
+    "jsonwebtoken": "^9.0.3",
     "next": "14.2.35",
     "postcss": "^8.4.49",
     "react": "^18.3.1",
@@ -28,6 +30,11 @@
     "tailwind-merge": "^2.5.4",
     "tailwindcss": "^4",
     "typescript": "^5.7.2",
+    "uuid": "^13.0.0",
     "zustand": "^5.0.1"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/uuid": "^10.0.0"
   }
 }
