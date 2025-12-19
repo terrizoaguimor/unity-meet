@@ -112,9 +112,8 @@ export function RoomHeader({
   return (
     <header
       className={cn(
-        'flex items-center justify-between px-4 py-2',
-        'bg-white/80 dark:bg-unity-dark-gray/80 backdrop-blur-md',
-        'border-b border-unity-light-gray dark:border-unity-darker',
+        'flex items-center justify-between px-4 py-3',
+        'glass-panel',
         className
       )}
     >
@@ -122,13 +121,13 @@ export function RoomHeader({
       <div className="flex items-center gap-4">
         {/* Nombre de la sala */}
         <div className="flex items-center gap-2">
-          <h1 className="text-lg font-semibold text-unity-dark-gray dark:text-white truncate max-w-[200px]">
+          <h1 className="text-lg font-semibold text-white truncate max-w-[200px]">
             {roomName}
           </h1>
 
           {/* Indicador de grabación */}
           {isRecording && (
-            <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-red-500 bg-red-100 dark:bg-red-900/30 rounded-full">
+            <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-red-400 bg-red-500/20 rounded-full">
               <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
               REC
             </span>
@@ -136,18 +135,18 @@ export function RoomHeader({
         </div>
 
         {/* Separador */}
-        <div className="w-px h-6 bg-unity-light-gray dark:bg-unity-darker hidden sm:block" />
+        <div className="w-px h-6 bg-white/10 hidden sm:block" />
 
         {/* Duración */}
         {startTime && (
-          <span className="text-sm text-gray-500 dark:text-gray-400 hidden sm:block">
+          <span className="text-sm text-neutral-400 hidden sm:block font-medium tabular-nums">
             {formatDuration(duration)}
           </span>
         )}
 
         {/* Participantes */}
         <Tooltip content={`${participantCount} participantes en la reunión`}>
-          <span className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">
+          <span className="flex items-center gap-1.5 text-sm text-neutral-400">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               fill="none"
@@ -174,10 +173,10 @@ export function RoomHeader({
           <button
             onClick={handleCopyLink}
             className={cn(
-              'flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors',
+              'flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg transition-all',
               copied
-                ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400'
-                : 'bg-unity-purple/10 text-unity-purple hover:bg-unity-purple/20'
+                ? 'bg-green-500/20 text-green-400'
+                : 'bg-unity-purple/20 text-unity-purple-light hover:bg-unity-purple/30'
             )}
           >
             {copied ? (
@@ -222,7 +221,7 @@ export function RoomHeader({
           <Tooltip content={`Layout: ${layout}`}>
             <button
               onClick={onToggleLayout}
-              className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-unity-darker transition-colors"
+              className="p-2 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-all"
             >
               {layoutIcons[layout]}
             </button>

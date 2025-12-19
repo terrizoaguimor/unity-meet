@@ -11,6 +11,7 @@ interface PreJoinScreenProps {
   onJoin: (userName: string, settings: MediaSettings) => void;
   isLoading?: boolean;
   error?: string | null;
+  debugStatus?: string;
 }
 
 interface MediaSettings {
@@ -34,6 +35,7 @@ export function PreJoinScreen({
   onJoin,
   isLoading = false,
   error,
+  debugStatus,
 }: PreJoinScreenProps) {
   // Estado básico
   const [userName, setUserName] = useState('');
@@ -58,6 +60,15 @@ export function PreJoinScreen({
 
   // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
+  const tracksRef = useRef<{ audio?: MediaStreamTrack; video?: MediaStreamTrack }>({});
+
+  // Mantener ref sincronizado con los tracks actuales
+  useEffect(() => {
+    tracksRef.current = {
+      audio: localTracks.audio,
+      video: localTracks.video,
+    };
+  }, [localTracks.audio, localTracks.video]);
 
   // Efecto para mostrar video cuando hay track
   useEffect(() => {
@@ -70,17 +81,18 @@ export function PreJoinScreen({
     }
   }, [localTracks.video]);
 
-  // Cleanup al desmontar
+  // Cleanup al desmontar - usa ref para acceder a valores actuales
   useEffect(() => {
     return () => {
-      if (localTracks.audio) {
-        localTracks.audio.stop();
+      // Usar ref para acceder a los tracks actuales, no los del closure
+      if (tracksRef.current.audio) {
+        tracksRef.current.audio.stop();
       }
-      if (localTracks.video) {
-        localTracks.video.stop();
+      if (tracksRef.current.video) {
+        tracksRef.current.video.stop();
       }
     };
-  }, []); // Solo cleanup al desmontar
+  }, []);
 
   // Cargar dispositivos al montar
   useEffect(() => {
@@ -217,32 +229,40 @@ export function PreJoinScreen({
 
   // Handler para unirse
   const handleJoin = () => {
-    if (!userName.trim()) return;
+    console.log('[PreJoinScreen] handleJoin called');
+    console.log('[PreJoinScreen] userName:', userName);
 
+    if (!userName.trim()) {
+      console.log('[PreJoinScreen] No userName, returning');
+      return;
+    }
+
+    console.log('[PreJoinScreen] Calling onJoin with settings...');
     onJoin(userName.trim(), {
       audioEnabled: isAudioEnabled,
       videoEnabled: isVideoEnabled,
       audioDeviceId: selectedAudioId,
       videoDeviceId: selectedVideoId,
     });
+    console.log('[PreJoinScreen] onJoin called');
   };
 
   const hasMediaAccess = isAudioEnabled || isVideoEnabled;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary-50 via-white to-secondary-50 dark:from-neutral-950 dark:via-neutral-900 dark:to-neutral-950 flex items-center justify-center p-4">
+    <div className="prejoin-container flex items-center justify-center p-4 sm:p-6">
       <div className="w-full max-w-5xl">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-primary-500 to-primary-700 text-white mb-4 shadow-lg shadow-primary-500/25">
-            <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-unity-purple to-unity-purple-dark text-white mb-5 shadow-xl shadow-unity-purple/30">
+            <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
             </svg>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900 dark:text-white mb-2">
+          <h1 className="text-2xl sm:text-3xl font-bold text-white mb-3">
             {roomName || 'Unirse a la reunión'}
           </h1>
-          <p className="text-neutral-500 dark:text-neutral-400">
+          <p className="text-neutral-400 text-base">
             Configura tu cámara y micrófono antes de unirte
           </p>
         </div>
@@ -336,12 +356,12 @@ export function PreJoinScreen({
 
             {/* Status indicators */}
             <div className="flex items-center justify-center gap-6 text-sm">
-              <span className="flex items-center gap-2 text-neutral-600 dark:text-neutral-400">
-                <span className={cn('w-2.5 h-2.5 rounded-full', isAudioEnabled ? 'bg-green-500' : 'bg-red-500')} />
+              <span className="flex items-center gap-2 text-neutral-400">
+                <span className={cn('w-2.5 h-2.5 rounded-full', isAudioEnabled ? 'bg-green-500 shadow-lg shadow-green-500/50' : 'bg-red-500')} />
                 {isAudioEnabled ? 'Micrófono activo' : 'Micrófono apagado'}
               </span>
-              <span className="flex items-center gap-2 text-neutral-600 dark:text-neutral-400">
-                <span className={cn('w-2.5 h-2.5 rounded-full', isVideoEnabled ? 'bg-green-500' : 'bg-red-500')} />
+              <span className="flex items-center gap-2 text-neutral-400">
+                <span className={cn('w-2.5 h-2.5 rounded-full', isVideoEnabled ? 'bg-green-500 shadow-lg shadow-green-500/50' : 'bg-red-500')} />
                 {isVideoEnabled ? 'Cámara activa' : 'Cámara apagada'}
               </span>
             </div>
@@ -349,13 +369,13 @@ export function PreJoinScreen({
 
           {/* Configuration Panel */}
           <div className="lg:col-span-2">
-            <div className="bg-white dark:bg-neutral-800 rounded-2xl p-6 shadow-xl ring-1 ring-neutral-200 dark:ring-neutral-700 h-full">
+            <div className="prejoin-card rounded-2xl p-6 h-full">
               <div className="space-y-5">
                 <div>
-                  <h2 className="text-lg font-semibold text-neutral-900 dark:text-white mb-1">
+                  <h2 className="text-lg font-semibold text-white mb-1">
                     Antes de unirte
                   </h2>
-                  <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                  <p className="text-sm text-neutral-400">
                     Ingresa tu nombre y configura tus dispositivos
                   </p>
                 </div>
@@ -376,8 +396,8 @@ export function PreJoinScreen({
 
                 {/* Device selectors */}
                 <div>
-                  <label className="flex items-center gap-2 text-sm font-medium mb-2 text-neutral-700 dark:text-neutral-300">
-                    <svg className="w-4 h-4 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <label className="flex items-center gap-2 text-sm font-medium mb-2 text-neutral-300">
+                    <svg className="w-4 h-4 text-neutral-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
                     </svg>
                     Micrófono
@@ -385,7 +405,7 @@ export function PreJoinScreen({
                   <select
                     value={selectedAudioId}
                     onChange={(e) => handleAudioDeviceChange(e.target.value)}
-                    className="w-full h-11 px-3 rounded-xl border border-neutral-200 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-900 text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                    className="w-full h-11 px-3 rounded-xl border border-white/10 bg-white/5 text-white focus:outline-none focus:ring-2 focus:ring-unity-purple focus:border-transparent text-sm transition-all"
                   >
                     {audioInputs.length === 0 && (
                       <option value="">No hay micrófonos disponibles</option>
@@ -399,8 +419,8 @@ export function PreJoinScreen({
                 </div>
 
                 <div>
-                  <label className="flex items-center gap-2 text-sm font-medium mb-2 text-neutral-700 dark:text-neutral-300">
-                    <svg className="w-4 h-4 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <label className="flex items-center gap-2 text-sm font-medium mb-2 text-neutral-300">
+                    <svg className="w-4 h-4 text-neutral-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" />
                     </svg>
                     Cámara
@@ -408,7 +428,7 @@ export function PreJoinScreen({
                   <select
                     value={selectedVideoId}
                     onChange={(e) => handleVideoDeviceChange(e.target.value)}
-                    className="w-full h-11 px-3 rounded-xl border border-neutral-200 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-900 text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                    className="w-full h-11 px-3 rounded-xl border border-white/10 bg-white/5 text-white focus:outline-none focus:ring-2 focus:ring-unity-purple focus:border-transparent text-sm transition-all"
                   >
                     {videoInputs.length === 0 && (
                       <option value="">No hay cámaras disponibles</option>
@@ -423,8 +443,17 @@ export function PreJoinScreen({
 
                 {/* Error */}
                 {error && (
-                  <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl">
-                    <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+                  <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl">
+                    <p className="text-sm text-red-400">{error}</p>
+                  </div>
+                )}
+
+                {/* Debug info - visible cuando está cargando */}
+                {isLoading && (
+                  <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-xl">
+                    <p className="text-xs text-yellow-400 font-mono">
+                      {debugStatus || 'Conectando...'}
+                    </p>
                   </div>
                 )}
 
@@ -439,12 +468,20 @@ export function PreJoinScreen({
                   <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
                   </svg>
-                  Unirse ahora
+                  {isLoading ? 'Conectando...' : 'Unirse ahora'}
                 </Button>
 
-                <div className="pt-4 border-t border-neutral-100 dark:border-neutral-700">
-                  <p className="text-xs text-neutral-500 dark:text-neutral-400 flex items-center gap-2">
-                    <svg className="w-4 h-4 text-primary-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                {/* Debug: Siempre visible */}
+                <div className="mt-2 p-2 bg-blue-500/20 border border-blue-500/50 rounded text-xs text-blue-300 font-mono">
+                  <div>isLoading: {String(isLoading)}</div>
+                  <div>debugStatus: {debugStatus || '(vacío)'}</div>
+                  <div>error: {error || '(ninguno)'}</div>
+                  <div>v2.1</div>
+                </div>
+
+                <div className="pt-4 border-t border-white/10">
+                  <p className="text-xs text-neutral-500 flex items-center gap-2">
+                    <svg className="w-4 h-4 text-unity-purple-light" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     Asegúrate de tener buena iluminación

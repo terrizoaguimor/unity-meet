@@ -100,8 +100,7 @@ export function VideoControls({
       ref={controlsRef}
       className={cn(
         'flex items-center justify-center gap-2 sm:gap-3 p-3 sm:p-4',
-        'bg-white/90 dark:bg-unity-dark-gray/90 backdrop-blur-md',
-        'rounded-2xl shadow-lg border border-unity-light-gray dark:border-unity-darker',
+        'glass-panel rounded-2xl shadow-xl',
         className
       )}
     >
@@ -177,7 +176,7 @@ export function VideoControls({
       )}
 
       {/* Separador */}
-      <div className="w-px h-8 bg-unity-light-gray dark:bg-unity-darker mx-1" />
+      <div className="w-px h-8 bg-white/10 mx-1" />
 
       {/* Chat */}
       <Tooltip content="Chat">
@@ -244,15 +243,15 @@ export function VideoControls({
 
         {/* Menú desplegable */}
         {isMoreMenuOpen && (
-          <div className="absolute bottom-full mb-2 right-0 w-48 py-2 bg-white dark:bg-unity-dark-gray rounded-xl shadow-xl border border-unity-light-gray dark:border-unity-darker animate-[scale-in_0.2s_ease-out] origin-bottom-right">
+          <div className="absolute bottom-full mb-2 right-0 w-48 py-2 glass-panel rounded-xl shadow-2xl animate-[scale-in_0.2s_ease-out] origin-bottom-right">
             <button
               onClick={() => {
                 onToggleSettings();
                 setIsMoreMenuOpen(false);
               }}
-              className="w-full px-4 py-2 text-left text-sm hover:bg-unity-light-gray/50 dark:hover:bg-unity-darker/50 flex items-center gap-2"
+              className="w-full px-4 py-2.5 text-left text-sm text-neutral-200 hover:bg-white/10 flex items-center gap-3 transition-colors"
             >
-              <SettingsIcon className="w-4 h-4" />
+              <SettingsIcon className="w-4 h-4 text-neutral-400" />
               Configuración
             </button>
 
@@ -261,9 +260,9 @@ export function VideoControls({
                 onCopyLink();
                 setIsMoreMenuOpen(false);
               }}
-              className="w-full px-4 py-2 text-left text-sm hover:bg-unity-light-gray/50 dark:hover:bg-unity-darker/50 flex items-center gap-2 sm:hidden"
+              className="w-full px-4 py-2.5 text-left text-sm text-neutral-200 hover:bg-white/10 flex items-center gap-3 sm:hidden transition-colors"
             >
-              <LinkIcon className="w-4 h-4" />
+              <LinkIcon className="w-4 h-4 text-neutral-400" />
               Copiar enlace
             </button>
 
@@ -272,20 +271,20 @@ export function VideoControls({
                 onToggleScreenShare();
                 setIsMoreMenuOpen(false);
               }}
-              className="w-full px-4 py-2 text-left text-sm hover:bg-unity-light-gray/50 dark:hover:bg-unity-darker/50 flex items-center gap-2 sm:hidden"
+              className="w-full px-4 py-2.5 text-left text-sm text-neutral-200 hover:bg-white/10 flex items-center gap-3 sm:hidden transition-colors"
             >
-              <ScreenShareIcon className="w-4 h-4" />
+              <ScreenShareIcon className="w-4 h-4 text-neutral-400" />
               {isScreenSharing ? 'Dejar de compartir' : 'Compartir pantalla'}
             </button>
 
-            <div className="my-2 border-t border-unity-light-gray dark:border-unity-darker" />
+            <div className="my-2 border-t border-white/10" />
 
             <button
               onClick={() => {
                 onLeave();
                 setIsMoreMenuOpen(false);
               }}
-              className="w-full px-4 py-2 text-left text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2"
+              className="w-full px-4 py-2.5 text-left text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-3 transition-colors"
             >
               <LeaveIcon className="w-4 h-4" />
               Salir de la reunión
@@ -295,7 +294,7 @@ export function VideoControls({
       </div>
 
       {/* Separador */}
-      <div className="w-px h-8 bg-unity-light-gray dark:bg-unity-darker mx-1" />
+      <div className="w-px h-8 bg-white/10 mx-1" />
 
       {/* Salir */}
       <Tooltip content="Salir de la reunión">

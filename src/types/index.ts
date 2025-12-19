@@ -21,10 +21,20 @@ export interface Participant {
   isVideoOff: boolean;
   isSpeaking: boolean;
   isScreenSharing: boolean;
+  isHandRaised: boolean;
+  handRaisedAt?: Date;
   joinedAt: Date;
   audioTrack?: MediaStreamTrack;
   videoTrack?: MediaStreamTrack;
   screenTrack?: MediaStreamTrack;
+}
+
+// Reacción flotante
+export interface Reaction {
+  id: string;
+  participantId: string;
+  emoji: string;
+  timestamp: Date;
 }
 
 // Mensaje de chat
@@ -132,6 +142,9 @@ export interface RoomState {
   messages: ChatMessage[];
   unreadMessages: number;
 
+  // Reactions
+  reactions: Reaction[];
+
   // Acciones
   setRoom: (room: Room | null) => void;
   setConnectionState: (state: ConnectionState) => void;
@@ -146,5 +159,8 @@ export interface RoomState {
   toggleSettings: () => void;
   addMessage: (message: ChatMessage) => void;
   markMessagesAsRead: () => void;
+  addReaction: (reaction: Reaction) => void;
+  removeReaction: (reactionId: string) => void;
+  toggleHandRaise: () => void;
   reset: () => void;
 }

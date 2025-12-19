@@ -42,7 +42,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
         {label && (
           <label
             htmlFor={inputId}
-            className="block text-sm font-medium mb-1.5 text-unity-dark-gray dark:text-unity-light-gray"
+            className="block text-sm font-medium mb-1.5 text-neutral-300"
           >
             {label}
           </label>
@@ -52,7 +52,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
         <div className="relative">
           {/* Left icon */}
           {leftIcon && (
-            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500">
               {leftIcon}
             </div>
           )}
@@ -63,17 +63,17 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
             id={inputId}
             type={inputType}
             className={cn(
-              'w-full h-10 px-3 rounded-lg border bg-white dark:bg-unity-darker',
-              'text-unity-dark-gray dark:text-unity-light-gray',
-              'placeholder:text-gray-400 dark:placeholder:text-gray-500',
+              'w-full h-11 px-3 rounded-xl border bg-white/5',
+              'text-white',
+              'placeholder:text-neutral-500',
               'transition-all duration-200',
               'focus:outline-none focus:ring-2 focus:ring-unity-purple focus:border-transparent',
               'disabled:opacity-50 disabled:cursor-not-allowed',
               leftIcon && 'pl-10',
               (rightIcon || isPassword) && 'pr-10',
               error
-                ? 'border-red-500 focus:ring-red-500'
-                : 'border-unity-light-gray dark:border-gray-600',
+                ? 'border-red-500/50 focus:ring-red-500'
+                : 'border-white/10',
               className
             )}
             {...props}
@@ -86,7 +86,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 focus:outline-none"
+                  className="text-neutral-500 hover:text-neutral-300 focus:outline-none transition-colors"
                   tabIndex={-1}
                 >
                   {showPassword ? (
@@ -129,7 +129,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
                   )}
                 </button>
               ) : (
-                <span className="text-gray-400">{rightIcon}</span>
+                <span className="text-neutral-500">{rightIcon}</span>
               )}
             </div>
           )}
@@ -140,7 +140,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
           <p
             className={cn(
               'mt-1.5 text-sm',
-              error ? 'text-red-500' : 'text-gray-500 dark:text-gray-400'
+              error ? 'text-red-400' : 'text-neutral-500'
             )}
           >
             {error || hint}

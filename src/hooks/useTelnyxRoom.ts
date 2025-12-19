@@ -5,10 +5,39 @@ import { TelnyxVideoClient, createTelnyxClient } from '@/lib/telnyx/client';
 import { useRoomStore } from '@/stores/roomStore';
 import type { ConnectionState, Participant } from '@/types';
 
+// Timeout para operaciones asíncronas (15 segundos)
+const OPERATION_TIMEOUT = 15000;
+
+/**
+ * Envolver una promesa con timeout
+ */
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  operationName: string
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error(`Timeout: ${operationName} tardó más de ${timeoutMs / 1000}s`));
+    }, timeoutMs);
+
+    promise
+      .then((result) => {
+        clearTimeout(timeoutId);
+        resolve(result);
+      })
+      .catch((error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      });
+  });
+}
+
 interface UseTelnyxRoomOptions {
   roomId: string;
   userName: string;
   autoConnect?: boolean;
+  onStatusChange?: (status: string) => void;
 }
 
 interface UseTelnyxRoomReturn {
@@ -40,6 +69,7 @@ export function useTelnyxRoom({
   roomId,
   userName,
   autoConnect = false,
+  onStatusChange,
 }: UseTelnyxRoomOptions): UseTelnyxRoomReturn {
   const clientRef = useRef<TelnyxVideoClient | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
@@ -53,12 +83,20 @@ export function useTelnyxRoom({
   const isVideoEnabledRef = useRef(isVideoEnabled);
   const userNameRef = useRef(userName);
   const roomIdRef = useRef(roomId);
+  const onStatusChangeRef = useRef(onStatusChange);
 
   // Mantener refs sincronizados
   isAudioEnabledRef.current = isAudioEnabled;
   isVideoEnabledRef.current = isVideoEnabled;
   userNameRef.current = userName;
   roomIdRef.current = roomId;
+  onStatusChangeRef.current = onStatusChange;
+
+  // Helper para actualizar status - estable porque usa refs
+  const updateStatus = useCallback((status: string) => {
+    console.log(`[useTelnyxRoom] ${status}`);
+    onStatusChangeRef.current?.(status);
+  }, []);
 
   // No usar destructuring del store - usar getState() directamente en callbacks
   // Esto evita que los callbacks se recreen cuando el store cambia
@@ -105,6 +143,7 @@ export function useTelnyxRoom({
             isVideoOff: false,
             isSpeaking: false,
             isScreenSharing: false,
+            isHandRaised: false,
             joinedAt: new Date(),
           };
 
@@ -171,39 +210,74 @@ export function useTelnyxRoom({
 
   /**
    * Conectar a la sala - sin dependencias del store
+   * Con timeouts para evitar que el loading quede colgado
    */
   const connect = useCallback(async () => {
+    updateStatus('connect() iniciado');
+
     if (clientRef.current?.getIsConnected()) {
+      updateStatus('Ya conectado, retornando');
       return;
     }
 
     try {
+      updateStatus('Estableciendo estado...');
       setConnectionState('connecting');
       useRoomStore.getState().setConnectionState('connecting');
       setError(null);
 
-      // Obtener token
-      const token = await getToken();
+      // 1. Obtener token (con timeout)
+      updateStatus('1/7 Obteniendo token...');
+      const token = await withTimeout(
+        getToken(),
+        OPERATION_TIMEOUT,
+        'obtener token'
+      );
+      updateStatus('2/7 Token obtenido');
 
-      // Crear cliente
+      // 2. Crear cliente
       const client = createTelnyxClient(roomIdRef.current, token);
       clientRef.current = client;
 
-      // Inicializar SDK
-      await client.initialize();
+      // 3. Inicializar SDK (con timeout)
+      updateStatus('3/7 Inicializando SDK...');
+      await withTimeout(
+        client.initialize(),
+        OPERATION_TIMEOUT,
+        'inicializar SDK'
+      );
+      updateStatus('4/7 SDK inicializado');
 
-      // Configurar event listeners
+      // 4. Configurar event listeners
       setupEventListeners(client);
 
-      // Obtener stream local
-      const stream = await client.getLocalMediaStream();
+      // 5. Obtener stream local (con timeout)
+      updateStatus('5/7 Obteniendo cámara/micrófono...');
+      const stream = await withTimeout(
+        client.getLocalMediaStream(),
+        OPERATION_TIMEOUT,
+        'acceder a cámara/micrófono'
+      );
       setLocalStream(stream);
+      updateStatus('6/7 Stream local obtenido');
 
-      // Conectar a la sala
-      await client.connect();
+      // 6. Conectar a la sala (con timeout)
+      updateStatus('6/7 Conectando a la sala...');
+      await withTimeout(
+        client.connect(),
+        OPERATION_TIMEOUT,
+        'conectar a la sala'
+      );
+      updateStatus('7/7 Conectado a la sala');
 
-      // Publicar stream local
-      await client.publishLocalStream('camera');
+      // 7. Publicar stream local (con timeout)
+      updateStatus('7/7 Publicando stream...');
+      await withTimeout(
+        client.publishLocalStream('camera'),
+        OPERATION_TIMEOUT,
+        'publicar stream'
+      );
+      updateStatus('Completado!');
 
       // Crear participante local - usar refs para valores actuales
       const localParticipant: Participant = {
@@ -214,6 +288,7 @@ export function useTelnyxRoom({
         isVideoOff: !isVideoEnabledRef.current,
         isSpeaking: false,
         isScreenSharing: false,
+        isHandRaised: false,
         joinedAt: new Date(),
         audioTrack: stream.getAudioTracks()[0],
         videoTrack: stream.getVideoTracks()[0],
@@ -233,13 +308,28 @@ export function useTelnyxRoom({
         maxParticipants: 50,
         isRecording: false,
       });
+
+      updateStatus('Conexión completada exitosamente');
     } catch (err) {
-      console.error('Error al conectar:', err);
-      setError(err instanceof Error ? err.message : 'Error de conexión');
+      const errorMessage = err instanceof Error ? err.message : 'Error de conexión';
+      updateStatus(`ERROR: ${errorMessage}`);
+      console.error('[useTelnyxRoom] Error al conectar:', err);
+
+      // Limpiar cliente si existe
+      if (clientRef.current) {
+        try {
+          clientRef.current.disconnect();
+        } catch {
+          // Ignorar errores de desconexión
+        }
+        clientRef.current = null;
+      }
+
+      setError(errorMessage);
       setConnectionState('failed');
       useRoomStore.getState().setConnectionState('failed');
     }
-  }, [getToken, setupEventListeners]); // Solo dependencias estables
+  }, [getToken, setupEventListeners, updateStatus]); // Solo dependencias estables
 
   /**
    * Desconectar de la sala - sin dependencias de estado

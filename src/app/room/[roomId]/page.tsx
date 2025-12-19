@@ -33,6 +33,7 @@ export default function RoomPage() {
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [isLoadingRoom, setIsLoadingRoom] = useState(true);
+  const [debugStatus, setDebugStatus] = useState<string>('');
 
   // Store - usar selectores individuales para evitar re-renders innecesarios
   const room = useRoomStore(state => state.room);
@@ -54,6 +55,7 @@ export default function RoomPage() {
     roomId,
     userName,
     autoConnect: false,
+    onStatusChange: setDebugStatus,
   }), [roomId, userName]);
 
   const {
@@ -115,14 +117,22 @@ export default function RoomPage() {
   // Manejar unirse a la sala
   const handleJoin = useCallback(
     async (name: string, _settings?: { audioEnabled: boolean; videoEnabled: boolean; audioDeviceId?: string; videoDeviceId?: string }) => {
+      console.log('[RoomPage] handleJoin called with name:', name);
+      setDebugStatus('Iniciando...');
       setUserName(name);
       setJoinError(null);
 
       try {
+        setDebugStatus('Llamando a connect()...');
+        console.log('[RoomPage] Calling connect()...');
         await connect();
+        console.log('[RoomPage] connect() completed successfully');
+        setDebugStatus('Conectado!');
         setHasJoined(true);
         setStartTime(new Date());
       } catch (err) {
+        console.error('[RoomPage] connect() failed:', err);
+        setDebugStatus(`Error: ${err instanceof Error ? err.message : 'desconocido'}`);
         setJoinError(
           err instanceof Error ? err.message : 'Error al unirse a la sala'
         );
@@ -175,12 +185,13 @@ export default function RoomPage() {
         onJoin={handleJoin}
         isLoading={isConnecting || isLoadingRoom}
         error={joinError || connectionError}
+        debugStatus={debugStatus}
       />
     );
   }
 
   return (
-    <div className="flex flex-col h-screen bg-unity-dark-gray">
+    <div className="flex flex-col h-screen video-room-bg">
       {/* Header */}
       <RoomHeader
         roomName={roomName || `Sala ${roomId}`}

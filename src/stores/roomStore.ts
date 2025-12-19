@@ -7,6 +7,7 @@ import type {
   ChatMessage,
   ConnectionState,
   VideoLayout,
+  Reaction,
 } from '@/types';
 
 /**
@@ -26,6 +27,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   isSettingsOpen: false,
   messages: [],
   unreadMessages: 0,
+  reactions: [],
 
   // Acciones para la sala
   setRoom: (room: Room | null) => set({ room }),
@@ -106,6 +108,32 @@ export const useRoomStore = create<RoomState>((set, get) => ({
 
   markMessagesAsRead: () => set({ unreadMessages: 0 }),
 
+  // Acciones de reacciones
+  addReaction: (reaction: Reaction) =>
+    set((state) => ({
+      reactions: [...state.reactions, reaction],
+    })),
+
+  removeReaction: (reactionId: string) =>
+    set((state) => ({
+      reactions: state.reactions.filter((r) => r.id !== reactionId),
+    })),
+
+  // Acción de mano levantada
+  toggleHandRaise: () =>
+    set((state) => {
+      if (!state.localParticipant) return state;
+
+      const isCurrentlyRaised = state.localParticipant.isHandRaised;
+      const updatedLocal: Participant = {
+        ...state.localParticipant,
+        isHandRaised: !isCurrentlyRaised,
+        handRaisedAt: isCurrentlyRaised ? undefined : new Date(),
+      };
+
+      return { localParticipant: updatedLocal };
+    }),
+
   // Reset completo del estado
   reset: () =>
     set({
@@ -120,6 +148,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       isSettingsOpen: false,
       messages: [],
       unreadMessages: 0,
+      reactions: [],
     }),
 }));
 
@@ -168,6 +197,9 @@ export const getStoreActions = () => {
     toggleSettings: state.toggleSettings,
     addMessage: state.addMessage,
     markMessagesAsRead: state.markMessagesAsRead,
+    addReaction: state.addReaction,
+    removeReaction: state.removeReaction,
+    toggleHandRaise: state.toggleHandRaise,
     reset: state.reset,
   };
 };

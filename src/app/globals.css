@@ -44,6 +44,18 @@
   --color-neutral-900: #201e22;
   --color-neutral-950: #141315;
 
+  /* Unity Brand Aliases - Custom colors used throughout */
+  --color-unity-purple: #512783;
+  --color-unity-purple-light: #8254ab;
+  --color-unity-purple-dark: #3d1d62;
+  --color-unity-orange: #f18918;
+  --color-unity-orange-light: #ffa038;
+  --color-unity-dark-gray: #1a1a1c;
+  --color-unity-darker: #121214;
+  --color-unity-darkest: #0a0a0b;
+  --color-unity-light-gray: #ebebeb;
+  --color-unity-medium-gray: #2a2a2e;
+
   /* Success */
   --color-success-50: #f0fdf4;
   --color-success-100: #dcfce7;
@@ -153,4 +165,202 @@ html:not(.dark) {
 
 .dark ::-webkit-scrollbar-thumb {
   background: #5a5a5a;
+}
+
+/* ============================================
+   Video Room Specific Styles
+   ============================================ */
+
+/* Video Room Background */
+.video-room-bg {
+  background: linear-gradient(180deg, #0a0a0b 0%, #121214 50%, #0a0a0b 100%);
+  min-height: 100vh;
+}
+
+/* Glass morphism panels */
+.glass-panel {
+  background: rgba(26, 26, 28, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-panel-light {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+/* Control button base */
+.control-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  transition: all 0.2s ease;
+  color: #ffffff;
+}
+
+.control-button.enabled {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.control-button.enabled:hover {
+  background: rgba(255, 255, 255, 0.18);
+  transform: scale(1.05);
+}
+
+.control-button.disabled {
+  background: #dc2626;
+}
+
+.control-button.disabled:hover {
+  background: #ef4444;
+  transform: scale(1.05);
+}
+
+.control-button.danger {
+  background: #dc2626;
+}
+
+.control-button.danger:hover {
+  background: #ef4444;
+  transform: scale(1.05);
+}
+
+/* Video container with subtle gradient */
+.video-container {
+  background: linear-gradient(145deg, #1a1a1c, #121214);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Speaking animation glow */
+.speaking-glow {
+  animation: speaking 1.5s ease-out infinite;
+}
+
+@keyframes speaking {
+  0% {
+    box-shadow: 0 0 0 0 rgba(241, 137, 24, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(241, 137, 24, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(241, 137, 24, 0);
+  }
+}
+
+/* Floating reaction animation */
+@keyframes float-up {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-50px) scale(1.2);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-100px) scale(0.8);
+  }
+}
+
+.reaction-float {
+  animation: float-up 2.5s ease-out forwards;
+}
+
+/* PreJoin screen styling */
+.prejoin-container {
+  background: linear-gradient(180deg, #0a0a0b 0%, #121214 100%);
+  min-height: 100vh;
+}
+
+.prejoin-card {
+  background: rgba(26, 26, 28, 0.9);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+/* Custom focus styles for accessibility */
+.focus-ring:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(81, 39, 131, 0.5);
+}
+
+/* Tooltip styles */
+.tooltip-content {
+  background: rgba(0, 0, 0, 0.9);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Smooth panel transitions */
+.slide-panel {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Badge pulse animation */
+@keyframes badge-pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+.badge-pulse {
+  animation: badge-pulse 2s ease-in-out infinite;
+}
+
+/* Network quality indicator bars */
+.network-bar {
+  width: 3px;
+  border-radius: 2px;
+  transition: height 0.3s ease, background-color 0.3s ease;
+}
+
+/* Selection styles */
+::selection {
+  background-color: rgba(81, 39, 131, 0.3);
+  color: inherit;
+}
+
+/* Input focus glow */
+.input-glow:focus {
+  border-color: #512783;
+  box-shadow: 0 0 0 3px rgba(81, 39, 131, 0.2);
+}
+
+/* Shimmer loading effect */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.05) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
 }

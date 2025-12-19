@@ -84,20 +84,19 @@ export function ChatPanel({
       ref={panelRef}
       className={cn(
         'fixed top-0 right-0 bottom-0 w-80 z-40',
-        'bg-white dark:bg-unity-dark-gray',
-        'border-l border-unity-light-gray dark:border-unity-darker',
-        'flex flex-col shadow-xl',
+        'glass-panel',
+        'flex flex-col shadow-2xl',
         className
       )}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-unity-light-gray dark:border-unity-darker">
-        <h3 className="font-semibold text-unity-dark-gray dark:text-white">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+        <h3 className="font-semibold text-white">
           Chat
         </h3>
         <button
           onClick={onClose}
-          className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:text-gray-300 dark:hover:bg-unity-darker transition-colors"
+          className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors"
           aria-label="Cerrar chat"
         >
           <svg
@@ -120,7 +119,7 @@ export function ChatPanel({
       {/* Mensajes */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-gray-400">
+          <div className="flex flex-col items-center justify-center h-full text-neutral-500">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               fill="none"
@@ -136,7 +135,7 @@ export function ChatPanel({
               />
             </svg>
             <p className="text-sm">No hay mensajes aún</p>
-            <p className="text-xs">Sé el primero en escribir</p>
+            <p className="text-xs text-neutral-600">Sé el primero en escribir</p>
           </div>
         ) : (
           messages.map((message) => (
@@ -151,7 +150,7 @@ export function ChatPanel({
       </div>
 
       {/* Input */}
-      <div className="p-4 border-t border-unity-light-gray dark:border-unity-darker">
+      <div className="p-4 border-t border-white/10">
         <div className="flex items-center gap-2">
           <input
             ref={inputRef}
@@ -160,12 +159,12 @@ export function ChatPanel({
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Escribe un mensaje..."
-            className="flex-1 h-10 px-4 rounded-full border border-unity-light-gray dark:border-gray-600 bg-white dark:bg-unity-darker text-unity-dark-gray dark:text-unity-light-gray placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-unity-purple"
+            className="flex-1 h-10 px-4 rounded-full border border-white/10 bg-white/5 text-white placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-unity-purple focus:border-transparent transition-all"
           />
           <button
             onClick={handleSend}
             disabled={!inputValue.trim()}
-            className="p-2.5 rounded-full bg-unity-purple text-white hover:bg-unity-purple-light disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="p-2.5 rounded-full bg-unity-purple text-white hover:bg-unity-purple-light disabled:opacity-50 disabled:cursor-not-allowed transition-all"
             aria-label="Enviar mensaje"
           >
             <svg
@@ -201,7 +200,7 @@ function MessageBubble({
   if (message.type === 'system') {
     return (
       <div className="flex justify-center">
-        <span className="px-3 py-1 text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-unity-darker rounded-full">
+        <span className="px-3 py-1 text-xs text-neutral-500 bg-white/5 rounded-full">
           {message.content}
         </span>
       </div>
@@ -222,11 +221,11 @@ function MessageBubble({
           'max-w-[70%] rounded-2xl px-4 py-2',
           isOwn
             ? 'bg-unity-purple text-white rounded-br-md'
-            : 'bg-gray-100 dark:bg-unity-darker text-unity-dark-gray dark:text-unity-light-gray rounded-bl-md'
+            : 'bg-white/10 text-white rounded-bl-md'
         )}
       >
         {!isOwn && (
-          <p className="text-xs font-medium text-unity-purple dark:text-unity-purple-light mb-1">
+          <p className="text-xs font-medium text-unity-purple-light mb-1">
             {message.senderName}
           </p>
         )}
@@ -234,7 +233,7 @@ function MessageBubble({
         <p
           className={cn(
             'text-xs mt-1',
-            isOwn ? 'text-white/70' : 'text-gray-400'
+            isOwn ? 'text-white/70' : 'text-neutral-500'
           )}
         >
           {formatMessageTime(message.timestamp)}
