@@ -252,8 +252,17 @@ export function useTelnyxRoom({
       // 4. Configurar event listeners
       setupEventListeners(client);
 
-      // 5. Obtener stream local (con timeout)
-      updateStatus('5/7 Obteniendo cámara/micrófono...');
+      // 5. Conectar a la sala PRIMERO (como en telnyx-meet)
+      updateStatus('5/7 Conectando a la sala (WebRTC)...');
+      await withTimeout(
+        client.connect(),
+        CONNECT_TIMEOUT,
+        'conectar a la sala (WebRTC)'
+      );
+      updateStatus('6/7 Conectado a la sala');
+
+      // 6. Obtener stream local DESPUÉS de conectar
+      updateStatus('6/7 Obteniendo cámara/micrófono...');
       const stream = await withTimeout(
         client.getLocalMediaStream(),
         OPERATION_TIMEOUT,
@@ -261,15 +270,6 @@ export function useTelnyxRoom({
       );
       setLocalStream(stream);
       updateStatus('6/7 Stream local obtenido');
-
-      // 6. Conectar a la sala (con timeout más largo para WebRTC)
-      updateStatus('6/7 Conectando a la sala (WebRTC)...');
-      await withTimeout(
-        client.connect(),
-        CONNECT_TIMEOUT,
-        'conectar a la sala (WebRTC)'
-      );
-      updateStatus('7/7 Conectado a la sala');
 
       // 7. Publicar stream local (con timeout)
       updateStatus('7/7 Publicando stream...');
