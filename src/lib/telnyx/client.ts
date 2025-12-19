@@ -71,6 +71,11 @@ export class TelnyxVideoClient {
   private setupInternalListeners(): void {
     if (!this.room) return;
 
+    // IMPORTANTE: Listener para monitorear cambios de estado
+    this.room.on('state_changed' as keyof Events, (newState: unknown) => {
+      console.log('[TelnyxClient] state_changed:', newState);
+    });
+
     // Mapear eventos del SDK a nuestros eventos
     const eventMappings: Array<{ sdkEvent: keyof Events; ourEvent: TelnyxSDKEvent }> = [
       { sdkEvent: 'connected', ourEvent: 'connected' },
@@ -86,47 +91,89 @@ export class TelnyxVideoClient {
 
     eventMappings.forEach(({ sdkEvent, ourEvent }) => {
       this.room!.on(sdkEvent, (...args: unknown[]) => {
+        console.log(`[TelnyxClient] Event ${sdkEvent}:`, args);
         this.emit(ourEvent, ...args);
       });
     });
 
     // Manejar evento de conexión para actualizar estado
     this.room.on('connected', () => {
+      console.log('[TelnyxClient] CONNECTED event fired!');
       this.isConnected = true;
     });
 
     this.room.on('disconnected', () => {
+      console.log('[TelnyxClient] DISCONNECTED event fired!');
       this.isConnected = false;
     });
   }
 
   /**
    * Conectar a la sala
+   * Usa el evento "connected" como señal de conexión exitosa
    */
   async connect(): Promise<void> {
     if (!this.room) {
       throw new Error('SDK no inicializado. Llama a initialize() primero');
     }
 
-    try {
+    return new Promise((resolve, reject) => {
       console.log('[TelnyxClient] Iniciando room.connect()...');
-      console.log('[TelnyxClient] Room state before connect:', this.room.getState());
+      console.log('[TelnyxClient] Room state before connect:', this.room!.getState());
 
-      await this.room.connect();
+      let unsubConnected: (() => void) | null = null;
+      let unsubDisconnected: (() => void) | null = null;
 
-      console.log('[TelnyxClient] room.connect() completado');
-      console.log('[TelnyxClient] Room state after connect:', this.room.getState());
-      this.isConnected = true;
-    } catch (error) {
-      console.error('[TelnyxClient] Error al conectar:', error);
-      // Intentar obtener más detalles del error
-      if (error instanceof Error) {
-        console.error('[TelnyxClient] Error name:', error.name);
-        console.error('[TelnyxClient] Error message:', error.message);
-        console.error('[TelnyxClient] Error stack:', error.stack);
-      }
-      throw new Error(`No se pudo conectar a la sala: ${error instanceof Error ? error.message : 'Error desconocido'}`);
-    }
+      const cleanup = () => {
+        if (unsubConnected) unsubConnected();
+        if (unsubDisconnected) unsubDisconnected();
+      };
+
+      // Timeout de seguridad
+      const timeout = setTimeout(() => {
+        console.error('[TelnyxClient] Connect timeout (internal)');
+        cleanup();
+        reject(new Error('Timeout interno de conexión'));
+      }, 25000);
+
+      // Listener para conexión exitosa
+      const onConnected = () => {
+        console.log('[TelnyxClient] CONNECTED - conexión exitosa via evento');
+        clearTimeout(timeout);
+        cleanup();
+        this.isConnected = true;
+        resolve();
+      };
+
+      // Listener para desconexión/error
+      const onDisconnected = () => {
+        console.error('[TelnyxClient] DISCONNECTED durante connect');
+        clearTimeout(timeout);
+        cleanup();
+        reject(new Error('Desconectado durante el intento de conexión'));
+      };
+
+      // SDK returns unsubscribe functions
+      unsubConnected = this.room!.on('connected', onConnected);
+      unsubDisconnected = this.room!.on('disconnected', onDisconnected);
+
+      // Iniciar conexión
+      this.room!.connect()
+        .then(() => {
+          console.log('[TelnyxClient] room.connect() promise resolved');
+          // La promesa se resolvió pero esperamos el evento 'connected'
+          // Si ya está conectado, resolve inmediatamente
+          if (this.room!.getState().status === 'connected') {
+            onConnected();
+          }
+        })
+        .catch((error: unknown) => {
+          console.error('[TelnyxClient] room.connect() promise rejected:', error);
+          clearTimeout(timeout);
+          cleanup();
+          reject(error);
+        });
+    });
   }
 
   /**
