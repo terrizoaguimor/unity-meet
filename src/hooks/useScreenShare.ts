@@ -28,82 +28,88 @@ export function useScreenShare({
   const [error, setError] = useState<string | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  const { setLocalParticipant } = useRoomStore();
+  // Usar ref para client para evitar dependencias inestables
+  const clientRef = useRef(client);
+  clientRef.current = client;
+
+  // No usar destructuring del store - usar getState() directamente
 
   /**
-   * Iniciar compartir pantalla
+   * Iniciar compartir pantalla - sin dependencias del store
    */
   const startScreenShare = useCallback(async () => {
-    if (!client) {
+    const currentClient = clientRef.current;
+    if (!currentClient) {
       setError('No hay conexión activa');
       return;
     }
 
-    if (isScreenSharing) {
-      return;
-    }
+    // Usar setter funcional para verificar estado actual
+    setIsScreenSharing(currentlySharing => {
+      if (currentlySharing) return currentlySharing; // Ya está compartiendo
 
-    try {
-      setError(null);
+      // Iniciar proceso async
+      (async () => {
+        try {
+          setError(null);
 
-      // Solicitar compartir pantalla
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: true,
-      } as DisplayMediaStreamOptions);
+          // Solicitar compartir pantalla
+          const stream = await navigator.mediaDevices.getDisplayMedia({
+            video: true,
+            audio: true,
+          } as DisplayMediaStreamOptions);
 
-      streamRef.current = stream;
-      setScreenStream(stream);
-      setIsScreenSharing(true);
+          streamRef.current = stream;
+          setScreenStream(stream);
 
-      // Publicar stream de pantalla en Telnyx
-      // Usamos un streamKey diferente para diferenciar de la cámara
-      const videoTrack = stream.getVideoTracks()[0];
-      const audioTrack = stream.getAudioTracks()[0];
+          // Publicar stream de pantalla en Telnyx
+          const videoTrack = stream.getVideoTracks()[0];
+          const audioTrack = stream.getAudioTracks()[0];
 
-      // Escuchar cuando el usuario deja de compartir desde el UI del navegador
-      videoTrack.onended = () => {
-        stopScreenShare();
-      };
+          // Escuchar cuando el usuario deja de compartir desde el UI del navegador
+          videoTrack.onended = () => {
+            stopScreenShareInternal();
+          };
 
-      // Publicar en el cliente de Telnyx si tiene el método
-      // Nota: Esto depende de cómo el SDK de Telnyx maneje múltiples streams
-      try {
-        // Intentar agregar como stream separado
-        await client.publishLocalStream('screen', new MediaStream([videoTrack, ...(audioTrack ? [audioTrack] : [])]));
-      } catch {
-        console.log('Publicando screen share como stream principal');
-        // Si no soporta múltiples streams, reemplazamos el stream de cámara temporalmente
-      }
+          // Publicar en el cliente de Telnyx si tiene el método
+          try {
+            await currentClient.publishLocalStream('screen', new MediaStream([videoTrack, ...(audioTrack ? [audioTrack] : [])]));
+          } catch {
+            console.log('Publicando screen share como stream principal');
+          }
 
-      // Actualizar estado del participante local
-      const store = useRoomStore.getState();
-      if (store.localParticipant) {
-        setLocalParticipant({
-          ...store.localParticipant,
-          isScreenSharing: true,
-          screenTrack: videoTrack,
-        });
-      }
-    } catch (err) {
-      console.error('Error al compartir pantalla:', err);
+          // Actualizar estado del participante local usando getState()
+          const store = useRoomStore.getState();
+          if (store.localParticipant) {
+            store.setLocalParticipant({
+              ...store.localParticipant,
+              isScreenSharing: true,
+              screenTrack: videoTrack,
+            });
+          }
+        } catch (err) {
+          console.error('Error al compartir pantalla:', err);
+          setIsScreenSharing(false);
 
-      if (err instanceof Error) {
-        if (err.name === 'NotAllowedError') {
-          setError('Permiso de compartir pantalla denegado');
-        } else {
-          setError('Error al iniciar compartir pantalla');
+          if (err instanceof Error) {
+            if (err.name === 'NotAllowedError') {
+              setError('Permiso de compartir pantalla denegado');
+            } else {
+              setError('Error al iniciar compartir pantalla');
+            }
+          }
         }
-      }
-    }
-  }, [client, isScreenSharing, setLocalParticipant]);
+      })();
+
+      return true; // Marcamos como compartiendo
+    });
+  }, []); // Sin dependencias - usa refs
 
   /**
-   * Detener compartir pantalla
+   * Función interna para detener (llamada desde event handler)
    */
-  const stopScreenShare = useCallback(async () => {
+  const stopScreenShareInternal = useCallback(() => {
     if (streamRef.current) {
-      // Detener todos los tracks
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
@@ -112,35 +118,48 @@ export function useScreenShare({
     setIsScreenSharing(false);
 
     // Despublicar stream de pantalla
-    if (client) {
-      try {
-        await client.unpublishLocalStream('screen');
-      } catch {
+    const currentClient = clientRef.current;
+    if (currentClient) {
+      currentClient.unpublishLocalStream('screen').catch(() => {
         // Ignorar error si no estaba publicado
-      }
+      });
     }
 
-    // Actualizar estado del participante local
+    // Actualizar estado del participante local usando getState()
     const store = useRoomStore.getState();
     if (store.localParticipant) {
-      setLocalParticipant({
+      store.setLocalParticipant({
         ...store.localParticipant,
         isScreenSharing: false,
         screenTrack: undefined,
       });
     }
-  }, [client, setLocalParticipant]);
+  }, []); // Sin dependencias
 
   /**
-   * Toggle compartir pantalla
+   * Detener compartir pantalla - sin dependencias
+   */
+  const stopScreenShare = useCallback(async () => {
+    stopScreenShareInternal();
+  }, [stopScreenShareInternal]);
+
+  /**
+   * Toggle compartir pantalla - sin dependencias inestables
    */
   const toggleScreenShare = useCallback(async () => {
-    if (isScreenSharing) {
-      await stopScreenShare();
-    } else {
-      await startScreenShare();
-    }
-  }, [isScreenSharing, startScreenShare, stopScreenShare]);
+    // Usar setter funcional para obtener el estado actual
+    setIsScreenSharing(currentlySharing => {
+      if (currentlySharing) {
+        // Detener
+        stopScreenShareInternal();
+        return false;
+      } else {
+        // Iniciar - lo hace startScreenShare
+        startScreenShare();
+        return currentlySharing; // startScreenShare lo cambiará
+      }
+    });
+  }, [startScreenShare, stopScreenShareInternal]);
 
   return {
     isScreenSharing,

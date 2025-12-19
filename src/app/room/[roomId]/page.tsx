@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { VideoGrid } from '@/components/video/VideoGrid';
 import { ScreenShare } from '@/components/video/ScreenShare';
@@ -34,21 +34,28 @@ export default function RoomPage() {
   const [joinError, setJoinError] = useState<string | null>(null);
   const [isLoadingRoom, setIsLoadingRoom] = useState(true);
 
-  // Store
-  const {
-    room,
-    isChatOpen,
-    isParticipantsListOpen,
-    toggleChat,
-    toggleParticipantsList,
-    messages,
-    participants,
-    localParticipant,
-    layout,
-    setLayout,
-  } = useRoomStore();
+  // Store - usar selectores individuales para evitar re-renders innecesarios
+  const room = useRoomStore(state => state.room);
+  const isChatOpen = useRoomStore(state => state.isChatOpen);
+  const isParticipantsListOpen = useRoomStore(state => state.isParticipantsListOpen);
+  const messages = useRoomStore(state => state.messages);
+  const participants = useRoomStore(state => state.participants);
+  const localParticipant = useRoomStore(state => state.localParticipant);
+  const layout = useRoomStore(state => state.layout);
 
-  // Hook principal de Telnyx
+  // Acciones del store - obtener una sola vez con ref
+  const storeActionsRef = useRef(useRoomStore.getState());
+  const toggleChat = storeActionsRef.current.toggleChat;
+  const toggleParticipantsList = storeActionsRef.current.toggleParticipantsList;
+  const setLayout = storeActionsRef.current.setLayout;
+
+  // Hook principal de Telnyx - memoizar opciones
+  const telnyxOptions = useMemo(() => ({
+    roomId,
+    userName,
+    autoConnect: false,
+  }), [roomId, userName]);
+
   const {
     connectionState,
     isConnecting,
@@ -62,25 +69,23 @@ export default function RoomPage() {
     toggleAudio,
     toggleVideo,
     client,
-  } = useTelnyxRoom({
-    roomId,
-    userName,
-    autoConnect: false,
-  });
+  } = useTelnyxRoom(telnyxOptions);
 
-  // Screen share
+  // Screen share - memoizar opciones
+  const screenShareOptions = useMemo(() => ({ client }), [client]);
   const {
     isScreenSharing,
     screenStream,
     toggleScreenShare,
     stopScreenShare,
-  } = useScreenShare({ client });
+  } = useScreenShare(screenShareOptions);
 
-  // Chat
-  const { sendMessage } = useChat({
-    participantId: 'local',
+  // Chat - memoizar opciones para evitar recreación del hook
+  const chatOptions = useMemo(() => ({
+    participantId: 'local' as const,
     participantName: userName,
-  });
+  }), [userName]);
+  const { sendMessage } = useChat(chatOptions);
 
   // Cargar información de la sala
   useEffect(() => {
@@ -156,8 +161,11 @@ export default function RoomPage() {
     setLayout(layouts[nextIndex]);
   };
 
-  // Lista de participantes para el componente
-  const participantsList = Array.from(participants.values());
+  // Lista de participantes para el componente - memoizada
+  const participantsList = useMemo(
+    () => Array.from(participants.values()),
+    [participants]
+  );
 
   // Si no ha entrado aún, mostrar pantalla de pre-join
   if (!hasJoined) {

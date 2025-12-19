@@ -48,22 +48,26 @@ export function useTelnyxRoom({
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
 
-  // Store actions
-  const {
-    setRoom,
-    setConnectionState: setStoreConnectionState,
-    addParticipant,
-    removeParticipant,
-    updateParticipant,
-    setLocalParticipant,
-    reset: resetStore,
-  } = useRoomStore();
+  // Refs para evitar dependencias inestables en callbacks
+  const isAudioEnabledRef = useRef(isAudioEnabled);
+  const isVideoEnabledRef = useRef(isVideoEnabled);
+  const userNameRef = useRef(userName);
+  const roomIdRef = useRef(roomId);
+
+  // Mantener refs sincronizados
+  isAudioEnabledRef.current = isAudioEnabled;
+  isVideoEnabledRef.current = isVideoEnabled;
+  userNameRef.current = userName;
+  roomIdRef.current = roomId;
+
+  // No usar destructuring del store - usar getState() directamente en callbacks
+  // Esto evita que los callbacks se recreen cuando el store cambia
 
   /**
    * Obtener token de acceso del servidor
    */
   const getToken = useCallback(async (): Promise<string> => {
-    const response = await fetch(`/api/rooms/${roomId}/token`, {
+    const response = await fetch(`/api/rooms/${roomIdRef.current}/token`, {
       method: 'POST',
     });
 
@@ -78,89 +82,11 @@ export function useTelnyxRoom({
     }
 
     return data.token;
-  }, [roomId]);
-
-  /**
-   * Conectar a la sala
-   */
-  const connect = useCallback(async () => {
-    if (clientRef.current?.getIsConnected()) {
-      return;
-    }
-
-    try {
-      setConnectionState('connecting');
-      setStoreConnectionState('connecting');
-      setError(null);
-
-      // Obtener token
-      const token = await getToken();
-
-      // Crear cliente
-      const client = createTelnyxClient(roomId, token);
-      clientRef.current = client;
-
-      // Inicializar SDK
-      await client.initialize();
-
-      // Configurar event listeners
-      setupEventListeners(client);
-
-      // Obtener stream local
-      const stream = await client.getLocalMediaStream();
-      setLocalStream(stream);
-
-      // Conectar a la sala
-      await client.connect();
-
-      // Publicar stream local
-      await client.publishLocalStream('camera');
-
-      // Crear participante local
-      const localParticipant: Participant = {
-        id: 'local',
-        name: userName,
-        isHost: false,
-        isMuted: !isAudioEnabled,
-        isVideoOff: !isVideoEnabled,
-        isSpeaking: false,
-        isScreenSharing: false,
-        joinedAt: new Date(),
-        audioTrack: stream.getAudioTracks()[0],
-        videoTrack: stream.getVideoTracks()[0],
-      };
-
-      setLocalParticipant(localParticipant);
-      setConnectionState('connected');
-      setStoreConnectionState('connected');
-
-      // Establecer información de la sala
-      setRoom({
-        id: roomId,
-        name: `Sala ${roomId}`,
-        createdAt: new Date(),
-        maxParticipants: 50,
-        isRecording: false,
-      });
-    } catch (err) {
-      console.error('Error al conectar:', err);
-      setError(err instanceof Error ? err.message : 'Error de conexión');
-      setConnectionState('failed');
-      setStoreConnectionState('failed');
-    }
-  }, [
-    roomId,
-    userName,
-    getToken,
-    isAudioEnabled,
-    isVideoEnabled,
-    setRoom,
-    setStoreConnectionState,
-    setLocalParticipant,
-  ]);
+  }, []); // Sin dependencias - usa ref
 
   /**
    * Configurar listeners de eventos del SDK
+   * Sin dependencias - usa getState() para acciones del store
    */
   const setupEventListeners = useCallback(
     (client: TelnyxVideoClient) => {
@@ -182,13 +108,13 @@ export function useTelnyxRoom({
             joinedAt: new Date(),
           };
 
-          addParticipant(participant);
+          useRoomStore.getState().addParticipant(participant);
         }
       });
 
       // Participante salió
       client.on('participant_left', (participantId: unknown) => {
-        removeParticipant(participantId as string);
+        useRoomStore.getState().removeParticipant(participantId as string);
       });
 
       // Stream publicado - suscribirse
@@ -219,7 +145,7 @@ export function useTelnyxRoom({
           const mediaStream = client.getParticipantMediaStream(id, key);
 
           if (mediaStream) {
-            updateParticipant(id, {
+            useRoomStore.getState().updateParticipant(id, {
               audioTrack: mediaStream.getAudioTracks()[0],
               videoTrack: mediaStream.getVideoTracks()[0],
             });
@@ -229,7 +155,7 @@ export function useTelnyxRoom({
 
       // Actividad de audio (detectar quién habla)
       client.on('audio_activity', (participantId: unknown, isSpeaking: unknown) => {
-        updateParticipant(participantId as string, {
+        useRoomStore.getState().updateParticipant(participantId as string, {
           isSpeaking: isSpeaking as boolean,
         });
       });
@@ -237,14 +163,86 @@ export function useTelnyxRoom({
       // Desconexión
       client.on('disconnected', () => {
         setConnectionState('disconnected');
-        setStoreConnectionState('disconnected');
+        useRoomStore.getState().setConnectionState('disconnected');
       });
     },
-    [addParticipant, removeParticipant, updateParticipant, setStoreConnectionState]
+    [] // Sin dependencias - usa getState()
   );
 
   /**
-   * Desconectar de la sala
+   * Conectar a la sala - sin dependencias del store
+   */
+  const connect = useCallback(async () => {
+    if (clientRef.current?.getIsConnected()) {
+      return;
+    }
+
+    try {
+      setConnectionState('connecting');
+      useRoomStore.getState().setConnectionState('connecting');
+      setError(null);
+
+      // Obtener token
+      const token = await getToken();
+
+      // Crear cliente
+      const client = createTelnyxClient(roomIdRef.current, token);
+      clientRef.current = client;
+
+      // Inicializar SDK
+      await client.initialize();
+
+      // Configurar event listeners
+      setupEventListeners(client);
+
+      // Obtener stream local
+      const stream = await client.getLocalMediaStream();
+      setLocalStream(stream);
+
+      // Conectar a la sala
+      await client.connect();
+
+      // Publicar stream local
+      await client.publishLocalStream('camera');
+
+      // Crear participante local - usar refs para valores actuales
+      const localParticipant: Participant = {
+        id: 'local',
+        name: userNameRef.current,
+        isHost: false,
+        isMuted: !isAudioEnabledRef.current,
+        isVideoOff: !isVideoEnabledRef.current,
+        isSpeaking: false,
+        isScreenSharing: false,
+        joinedAt: new Date(),
+        audioTrack: stream.getAudioTracks()[0],
+        videoTrack: stream.getVideoTracks()[0],
+      };
+
+      // Usar getState() para todas las acciones del store
+      const store = useRoomStore.getState();
+      store.setLocalParticipant(localParticipant);
+      setConnectionState('connected');
+      store.setConnectionState('connected');
+
+      // Establecer información de la sala
+      store.setRoom({
+        id: roomIdRef.current,
+        name: `Sala ${roomIdRef.current}`,
+        createdAt: new Date(),
+        maxParticipants: 50,
+        isRecording: false,
+      });
+    } catch (err) {
+      console.error('Error al conectar:', err);
+      setError(err instanceof Error ? err.message : 'Error de conexión');
+      setConnectionState('failed');
+      useRoomStore.getState().setConnectionState('failed');
+    }
+  }, [getToken, setupEventListeners]); // Solo dependencias estables
+
+  /**
+   * Desconectar de la sala - sin dependencias de estado
    */
   const disconnect = useCallback(() => {
     if (clientRef.current) {
@@ -252,62 +250,78 @@ export function useTelnyxRoom({
       clientRef.current = null;
     }
 
-    if (localStream) {
-      localStream.getTracks().forEach((track) => track.stop());
-      setLocalStream(null);
-    }
+    // Usar setter funcional para acceder al stream actual
+    setLocalStream(currentStream => {
+      if (currentStream) {
+        currentStream.getTracks().forEach((track) => track.stop());
+      }
+      return null;
+    });
 
     setConnectionState('disconnected');
-    setStoreConnectionState('disconnected');
-    resetStore();
-  }, [localStream, setStoreConnectionState, resetStore]);
+
+    // Usar getState() para acciones del store
+    const store = useRoomStore.getState();
+    store.setConnectionState('disconnected');
+    store.reset();
+  }, []); // Sin dependencias - usa getState()
 
   /**
-   * Toggle de audio
+   * Toggle de audio - sin dependencias de estado para evitar recreación
    */
   const toggleAudio = useCallback(() => {
-    const newState = !isAudioEnabled;
-    setIsAudioEnabled(newState);
+    setIsAudioEnabled(prev => {
+      const newState = !prev;
 
-    if (clientRef.current) {
-      clientRef.current.toggleAudio(newState);
-    }
+      if (clientRef.current) {
+        clientRef.current.toggleAudio(newState);
+      }
 
-    // Actualizar estado del participante local
-    const store = useRoomStore.getState();
-    if (store.localParticipant) {
-      setLocalParticipant({
-        ...store.localParticipant,
-        isMuted: !newState,
-      });
-    }
-  }, [isAudioEnabled, setLocalParticipant]);
+      // Actualizar estado del participante local usando getState() directamente
+      const store = useRoomStore.getState();
+      if (store.localParticipant) {
+        store.setLocalParticipant({
+          ...store.localParticipant,
+          isMuted: !newState,
+        });
+      }
+
+      return newState;
+    });
+  }, []); // Sin dependencias - usa refs y getState()
 
   /**
-   * Toggle de video
+   * Toggle de video - sin dependencias de estado para evitar recreación
    */
   const toggleVideo = useCallback(() => {
-    const newState = !isVideoEnabled;
-    setIsVideoEnabled(newState);
+    setIsVideoEnabled(prev => {
+      const newState = !prev;
 
-    if (clientRef.current) {
-      clientRef.current.toggleVideo(newState);
-    }
+      if (clientRef.current) {
+        clientRef.current.toggleVideo(newState);
+      }
 
-    // Actualizar estado del participante local
-    const store = useRoomStore.getState();
-    if (store.localParticipant) {
-      setLocalParticipant({
-        ...store.localParticipant,
-        isVideoOff: !newState,
-      });
-    }
-  }, [isVideoEnabled, setLocalParticipant]);
+      // Actualizar estado del participante local usando getState() directamente
+      const store = useRoomStore.getState();
+      if (store.localParticipant) {
+        store.setLocalParticipant({
+          ...store.localParticipant,
+          isVideoOff: !newState,
+        });
+      }
 
-  // Auto-conectar si está habilitado
+      return newState;
+    });
+  }, []); // Sin dependencias - usa refs y getState()
+
+  // Ref para connect function estable
+  const connectRef = useRef(connect);
+  connectRef.current = connect;
+
+  // Auto-conectar si está habilitado - solo depende de autoConnect
   useEffect(() => {
     if (autoConnect) {
-      connect();
+      connectRef.current();
     }
 
     // Cleanup al desmontar
@@ -316,7 +330,7 @@ export function useTelnyxRoom({
         clientRef.current.disconnect();
       }
     };
-  }, [autoConnect, connect]);
+  }, [autoConnect]); // Solo autoConnect como dependencia
 
   return {
     connectionState,

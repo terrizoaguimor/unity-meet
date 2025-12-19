@@ -34,18 +34,27 @@ export function useChat({
   participantId,
   participantName,
 }: UseChatOptions): UseChatReturn {
+  // Store state - solo datos, no acciones
   const messages = useRoomStore((state) => state.messages);
   const unreadCount = useRoomStore((state) => state.unreadMessages);
   const isChatOpen = useRoomStore((state) => state.isChatOpen);
-  const toggleChat = useRoomStore((state) => state.toggleChat);
-  const addMessage = useRoomStore((state) => state.addMessage);
-  const markMessagesAsRead = useRoomStore((state) => state.markMessagesAsRead);
+
+  // Refs para evitar dependencias inestables
+  const participantIdRef = useRef(participantId);
+  const participantNameRef = useRef(participantName);
+  participantIdRef.current = participantId;
+  participantNameRef.current = participantName;
+
+  // Acciones del store - obtener via getState() para estabilidad
+  const storeActionsRef = useRef(useRoomStore.getState());
+  const toggleChat = storeActionsRef.current.toggleChat;
+  const markMessagesAsRead = storeActionsRef.current.markMessagesAsRead;
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [isScrolledToBottom, setIsScrolledToBottom] = useState(true);
 
   /**
-   * Enviar un mensaje
+   * Enviar un mensaje - sin dependencias inestables
    */
   const sendMessage = useCallback(
     (content: string) => {
@@ -55,20 +64,17 @@ export function useChat({
 
       const message: ChatMessage = {
         id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        senderId: participantId,
-        senderName: participantName,
+        senderId: participantIdRef.current,
+        senderName: participantNameRef.current,
         content: trimmedContent,
         timestamp: new Date(),
         type: 'message',
       };
 
-      addMessage(message);
-
-      // En una implementación real, aquí enviaríamos el mensaje
-      // a través del data channel de Telnyx o un WebSocket separado
-      // broadcastMessage(message);
+      // Usar getState() para la acción
+      useRoomStore.getState().addMessage(message);
     },
-    [participantId, participantName, addMessage]
+    [] // Sin dependencias - usa refs
   );
 
   /**
@@ -81,11 +87,11 @@ export function useChat({
   }, []);
 
   /**
-   * Marcar mensajes como leídos
+   * Marcar mensajes como leídos - sin dependencias
    */
   const markAsRead = useCallback(() => {
-    markMessagesAsRead();
-  }, [markMessagesAsRead]);
+    useRoomStore.getState().markMessagesAsRead();
+  }, []); // Sin dependencias - usa getState()
 
   // Auto-scroll cuando llegan nuevos mensajes y estamos al final
   useEffect(() => {

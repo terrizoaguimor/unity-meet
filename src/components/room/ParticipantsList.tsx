@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import { gsap } from 'gsap';
 import { cn } from '@/lib/utils/cn';
 import { Avatar } from '@/components/ui/Avatar';
@@ -49,10 +49,11 @@ export function ParticipantsList({
     }
   }, [isOpen]);
 
-  // Combinar local + remotos
-  const allParticipants = localParticipant
-    ? [localParticipant, ...participants]
-    : participants;
+  // Combinar local + remotos - memoizado para evitar recreación
+  const allParticipants = useMemo(
+    () => (localParticipant ? [localParticipant, ...participants] : participants),
+    [localParticipant, participants]
+  );
 
   const totalCount = allParticipants.length;
 
