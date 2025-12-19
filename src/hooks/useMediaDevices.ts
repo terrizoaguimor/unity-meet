@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { MediaDevice } from '@/types';
 
 interface UseMediaDevicesReturn {
@@ -45,6 +45,19 @@ export function useMediaDevices(): UseMediaDevicesReturn {
   const [error, setError] = useState<string | null>(null);
   const [hasPermissions, setHasPermissions] = useState(false);
 
+  // Use refs to avoid infinite loops in callbacks
+  const hasInitializedRef = useRef(false);
+  const selectedAudioInputRef = useRef(selectedAudioInput);
+  const selectedAudioOutputRef = useRef(selectedAudioOutput);
+  const selectedVideoInputRef = useRef(selectedVideoInput);
+
+  // Keep refs in sync
+  useEffect(() => {
+    selectedAudioInputRef.current = selectedAudioInput;
+    selectedAudioOutputRef.current = selectedAudioOutput;
+    selectedVideoInputRef.current = selectedVideoInput;
+  }, [selectedAudioInput, selectedAudioOutput, selectedVideoInput]);
+
   /**
    * Obtener lista de dispositivos disponibles
    */
@@ -80,21 +93,21 @@ export function useMediaDevices(): UseMediaDevicesReturn {
       setAudioOutputs(audioOut);
       setVideoInputs(videoIn);
 
-      // Seleccionar dispositivos por defecto si no hay selección
-      if (!selectedAudioInput && audioIn.length > 0) {
+      // Seleccionar dispositivos por defecto si no hay selección (only once)
+      if (!selectedAudioInputRef.current && audioIn.length > 0) {
         setSelectedAudioInput(audioIn[0].deviceId);
       }
-      if (!selectedAudioOutput && audioOut.length > 0) {
+      if (!selectedAudioOutputRef.current && audioOut.length > 0) {
         setSelectedAudioOutput(audioOut[0].deviceId);
       }
-      if (!selectedVideoInput && videoIn.length > 0) {
+      if (!selectedVideoInputRef.current && videoIn.length > 0) {
         setSelectedVideoInput(videoIn[0].deviceId);
       }
     } catch (err) {
       console.error('Error al enumerar dispositivos:', err);
       setError('No se pudieron obtener los dispositivos');
     }
-  }, [selectedAudioInput, selectedAudioOutput, selectedVideoInput]);
+  }, []); // No dependencies - uses refs instead
 
   /**
    * Solicitar permisos de cámara y micrófono
@@ -161,8 +174,11 @@ export function useMediaDevices(): UseMediaDevicesReturn {
     };
   }, [enumerateDevices]);
 
-  // Verificar permisos iniciales
+  // Verificar permisos iniciales - only run once
   useEffect(() => {
+    if (hasInitializedRef.current) return;
+    hasInitializedRef.current = true;
+
     const checkInitialPermissions = async () => {
       try {
         // Intentar enumerar dispositivos para ver si ya tenemos permisos
