@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { cn } from '@/lib/utils/cn';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -38,6 +38,8 @@ export function PreJoinScreen({
   const [permissionError, setPermissionError] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const hasInitializedRef = useRef(false);
+  const localStreamRef = useRef<MediaStream | null>(null);
 
   const {
     audioInputs,
@@ -51,37 +53,67 @@ export function PreJoinScreen({
     isLoading: isLoadingDevices,
   } = useMediaDevices();
 
-  // Solicitar permisos y obtener stream local
+  // Keep ref in sync with state
   useEffect(() => {
+    localStreamRef.current = localStream;
+  }, [localStream]);
+
+  // Get media stream with specified devices
+  const getMediaStream = useCallback(async (audioId?: string, videoId?: string) => {
+    try {
+      // Stop previous stream
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: audioId ? { deviceId: { exact: audioId } } : true,
+        video: videoId ? { deviceId: { exact: videoId } } : true,
+      });
+      setLocalStream(stream);
+      setPermissionError(null);
+      return true;
+    } catch (err) {
+      console.error('Error obteniendo media:', err);
+      setPermissionError('No se pudo acceder a la cámara/micrófono');
+      return false;
+    }
+  }, []);
+
+  // Initial permission request - only runs once
+  useEffect(() => {
+    if (hasInitializedRef.current) return;
+    hasInitializedRef.current = true;
+
     const initMedia = async () => {
       const granted = await requestPermissions();
       if (!granted) {
         setPermissionError('Se requieren permisos de cámara y micrófono');
         return;
       }
-
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: selectedAudioInput ? { deviceId: selectedAudioInput } : true,
-          video: selectedVideoInput ? { deviceId: selectedVideoInput } : true,
-        });
-        setLocalStream(stream);
-        setPermissionError(null);
-      } catch (err) {
-        console.error('Error obteniendo media:', err);
-        setPermissionError('No se pudo acceder a la cámara/micrófono');
-      }
+      // Initial stream with default devices
+      await getMediaStream();
     };
 
     initMedia();
 
+    // Cleanup on unmount
     return () => {
-      // Cleanup
-      if (localStream) {
-        localStream.getTracks().forEach((track) => track.stop());
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((track) => track.stop());
       }
     };
-  }, [selectedAudioInput, selectedVideoInput]);
+  }, [requestPermissions, getMediaStream]);
+
+  // Update stream when device selection changes (after initial setup)
+  useEffect(() => {
+    // Skip if not initialized or no permissions yet
+    if (!hasPermissions || !hasInitializedRef.current) return;
+    // Skip the very first render after initialization
+    if (!localStreamRef.current) return;
+
+    getMediaStream(selectedAudioInput, selectedVideoInput);
+  }, [selectedAudioInput, selectedVideoInput, hasPermissions, getMediaStream]);
 
   // Actualizar video preview
   useEffect(() => {
