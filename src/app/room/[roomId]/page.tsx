@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { VideoGrid } from '@/components/video/VideoGrid';
 import { ScreenShare } from '@/components/video/ScreenShare';
+import { FloatingLocalVideo } from '@/components/video/FloatingLocalVideo';
 import { RoomAudio } from '@/components/room/RoomAudio';
 import { RoomHeader } from '@/components/room/RoomHeader';
 import { MeetingControls } from '@/components/room/MeetingControls';
@@ -196,45 +197,44 @@ export default function RoomPage() {
       />
 
       {/* Área principal de video */}
-      <main className="flex-1 relative overflow-hidden">
-        {/* Screen share (si está activo) */}
-        {(isScreenSharing || participantsList.some((p) => p.isScreenSharing)) && (
-          <div className="absolute inset-0 z-10 p-4 bg-black/90">
-            <ScreenShare
-              stream={
-                isScreenSharing && presentationTracks.video
-                  ? new MediaStream([presentationTracks.video])
-                  : participantsList.find((p) => p.isScreenSharing)?.screenTrack
-                    ? new MediaStream([
-                        participantsList.find((p) => p.isScreenSharing)!
-                          .screenTrack!,
-                      ])
-                    : null
-              }
-              participantName={
-                isScreenSharing
-                  ? userName
-                  : participantsList.find((p) => p.isScreenSharing)?.name
-              }
-              isLocal={isScreenSharing}
-              onStopSharing={isScreenSharing ? toggleScreenShare : undefined}
-              className="h-full"
-            />
-          </div>
+      <main className="flex-1 relative overflow-hidden flex flex-col">
+        {/* Screen share layout (si está activo) */}
+        {(isScreenSharing || participantsList.some((p) => p.isScreenSharing)) ? (
+          <>
+            {/* Screen share a pantalla completa */}
+            <div className="flex-1 p-2">
+              <ScreenShare
+                stream={
+                  isScreenSharing && presentationTracks.video
+                    ? new MediaStream([presentationTracks.video])
+                    : participantsList.find((p) => p.isScreenSharing)?.screenTrack
+                      ? new MediaStream([
+                          participantsList.find((p) => p.isScreenSharing)!
+                            .screenTrack!,
+                        ])
+                      : null
+                }
+                participantName={
+                  isScreenSharing
+                    ? userName
+                    : participantsList.find((p) => p.isScreenSharing)?.name
+                }
+                isLocal={isScreenSharing}
+                onStopSharing={isScreenSharing ? toggleScreenShare : undefined}
+                className="h-full"
+              />
+            </div>
+
+            {/* Video local flotante estilo Zoom */}
+            <FloatingLocalVideo participant={localParticipant} />
+          </>
+        ) : (
+          /* Video Grid normal (sin screen share) */
+          <VideoGrid localStream={localStream} />
         )}
 
         {/* Audio for remote participants */}
         <RoomAudio />
-
-        {/* Video Grid */}
-        <VideoGrid
-          localStream={localStream}
-          className={
-            isScreenSharing || participantsList.some((p) => p.isScreenSharing)
-              ? 'hidden'
-              : ''
-          }
-        />
 
         {/* Indicador de estado de conexión */}
         {connectionState === 'reconnecting' && (
