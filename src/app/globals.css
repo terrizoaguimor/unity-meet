@@ -1,0 +1,156 @@
+@import "tailwindcss";
+
+/* Enable dark mode with class strategy for Tailwind CSS 4 */
+@variant dark (&:where(.dark, .dark *));
+
+/* Unity Meet Theme - Brand Colors */
+@theme {
+  /* Primary - Unity Purple (#512783) */
+  --color-primary-50: #faf7fc;
+  --color-primary-100: #f3eef8;
+  --color-primary-200: #e9ddf2;
+  --color-primary-300: #d6c2e8;
+  --color-primary-400: #bb9ad9;
+  --color-primary-500: #9d6fc6;
+  --color-primary-600: #8254ab;
+  --color-primary-700: #6b4390;
+  --color-primary-800: #512783;
+  --color-primary-900: #4a2574;
+  --color-primary-950: #2e1349;
+
+  /* Secondary - Unity Orange (#f18918) */
+  --color-secondary-50: #fff8ed;
+  --color-secondary-100: #ffefd4;
+  --color-secondary-200: #ffdba8;
+  --color-secondary-300: #ffc170;
+  --color-secondary-400: #ffa038;
+  --color-secondary-500: #f18918;
+  --color-secondary-600: #e2700e;
+  --color-secondary-700: #bb550e;
+  --color-secondary-800: #964313;
+  --color-secondary-900: #7a3913;
+  --color-secondary-950: #421b08;
+
+  /* Neutral - Unity Grays */
+  --color-neutral-50: #fafafa;
+  --color-neutral-100: #f5f5f5;
+  --color-neutral-200: #ebebeb;
+  --color-neutral-300: #dadada;
+  --color-neutral-400: #ababab;
+  --color-neutral-500: #7a7a7a;
+  --color-neutral-600: #5a5a5a;
+  --color-neutral-700: #403c43;
+  --color-neutral-800: #302d32;
+  --color-neutral-900: #201e22;
+  --color-neutral-950: #141315;
+
+  /* Success */
+  --color-success-50: #f0fdf4;
+  --color-success-100: #dcfce7;
+  --color-success-500: #22c55e;
+  --color-success-600: #16a34a;
+  --color-success-700: #15803d;
+
+  /* Error */
+  --color-error-50: #fef2f2;
+  --color-error-100: #fee2e2;
+  --color-error-500: #ef4444;
+  --color-error-600: #dc2626;
+  --color-error-700: #b91c1c;
+
+  /* Warning */
+  --color-warning-50: #fff8ed;
+  --color-warning-100: #ffefd4;
+  --color-warning-500: #f18918;
+  --color-warning-600: #e2700e;
+  --color-warning-700: #bb550e;
+}
+
+/* Base Styles */
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: #fafafa;
+  color: #403c43;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Dark mode base styles */
+.dark body,
+html.dark body {
+  background-color: #09090b;
+  color: #f4f4f5;
+}
+
+html.dark {
+  color-scheme: dark;
+  background-color: #09090b;
+}
+
+html:not(.dark) {
+  color-scheme: light;
+}
+
+/* Keyframes */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-ring {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 0.8;
+  }
+}
+
+@keyframes speaking {
+  0% {
+    box-shadow: 0 0 0 0 rgba(241, 137, 24, 0.4);
+  }
+  100% {
+    box-shadow: 0 0 0 8px rgba(241, 137, 24, 0);
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f5f5f5;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #ababab;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #7a7a7a;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: #201e22;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #5a5a5a;
+}

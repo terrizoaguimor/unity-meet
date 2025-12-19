@@ -1,0 +1,5 @@
+# Archivos de sonido para Unity Meet
+# Agregar los siguientes archivos MP3:
+# - join.mp3      (sonido cuando alguien se une)
+# - leave.mp3     (sonido cuando alguien sale)
+# - notification.mp3 (sonido de notificación)
