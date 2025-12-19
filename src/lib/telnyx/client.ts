@@ -24,13 +24,15 @@ export class TelnyxVideoClient {
   private room: Room | null = null;
   private roomId: string;
   private token: string;
+  private userName: string;
   private eventListeners: Map<TelnyxSDKEvent, Set<EventCallback>> = new Map();
   private isConnected = false;
   private localStream: MediaStream | null = null;
 
-  constructor(config: { roomId: string; token: string }) {
+  constructor(config: { roomId: string; token: string; userName?: string }) {
     this.roomId = config.roomId;
     this.token = config.token;
+    this.userName = config.userName || 'Usuario';
   }
 
   /**
@@ -41,10 +43,17 @@ export class TelnyxVideoClient {
       // Importar el SDK dinámicamente (solo en cliente)
       const { initialize } = await import('@telnyx/video');
 
+      // Context similar to telnyx-meet reference implementation
+      const context = JSON.stringify({
+        displayName: this.userName,
+        timestamp: Date.now(),
+      });
+
       this.room = await initialize({
         roomId: this.roomId,
         clientToken: this.token,
-        logLevel: 'DEBUG', // Enable debug to see what's happening
+        context, // Important: participant context
+        logLevel: 'DEBUG',
         enableMessages: true,
       });
 
@@ -357,6 +366,6 @@ export class TelnyxVideoClient {
 /**
  * Factory para crear instancias del cliente
  */
-export function createTelnyxClient(roomId: string, token: string): TelnyxVideoClient {
-  return new TelnyxVideoClient({ roomId, token });
+export function createTelnyxClient(roomId: string, token: string, userName?: string): TelnyxVideoClient {
+  return new TelnyxVideoClient({ roomId, token, userName });
 }

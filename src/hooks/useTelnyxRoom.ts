@@ -236,8 +236,8 @@ export function useTelnyxRoom({
       );
       updateStatus('2/7 Token obtenido');
 
-      // 2. Crear cliente
-      const client = createTelnyxClient(roomIdRef.current, token);
+      // 2. Crear cliente con userName para el contexto
+      const client = createTelnyxClient(roomIdRef.current, token, userNameRef.current);
       clientRef.current = client;
 
       // 3. Inicializar SDK (con timeout)
