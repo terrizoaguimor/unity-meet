@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { signIn, useSession } from 'next-auth/react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 
@@ -11,12 +12,20 @@ import { Input } from '@/components/ui/Input';
  */
 export default function RegisterPage() {
   const router = useRouter();
+  const { status } = useSession();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (status === 'authenticated') {
+      router.push('/dashboard');
+    }
+  }, [status, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,18 +44,48 @@ export default function RegisterPage() {
 
     setIsLoading(true);
 
-    // Simular registro (en producción conectar con backend real)
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Registrar usuario
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, password }),
+      });
 
-      // Por ahora, redirigir directamente
-      router.push('/room/create');
-    } catch {
-      setError('Error al registrarse. Intenta de nuevo.');
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Error al registrarse');
+      }
+
+      // Auto-login después del registro
+      const signInResult = await signIn('credentials', {
+        email,
+        password,
+        redirect: false,
+      });
+
+      if (signInResult?.error) {
+        // Si el auto-login falla, redirigir a login
+        router.push('/login');
+      } else {
+        router.push('/dashboard');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al registrarse. Intenta de nuevo.');
     } finally {
       setIsLoading(false);
     }
   };
+
+  // Show loading while checking session
+  if (status === 'loading') {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-unity-purple border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-unity-purple/10 to-unity-orange/10 dark:from-unity-darker dark:to-unity-dark-gray flex items-center justify-center p-4">
@@ -73,8 +112,11 @@ export default function RegisterPage() {
           <h1 className="text-2xl font-bold text-unity-dark-gray dark:text-white text-center mb-2">
             Crear cuenta
           </h1>
-          <p className="text-gray-500 dark:text-gray-400 text-center mb-8">
+          <p className="text-gray-500 dark:text-gray-400 text-center mb-2">
             Regístrate para acceder a todas las funciones
+          </p>
+          <p className="text-xs text-unity-purple text-center mb-6">
+            Solo disponible para correos @unityfinancialnetwork.com
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-5">
@@ -90,7 +132,7 @@ export default function RegisterPage() {
             <Input
               label="Correo electrónico"
               type="email"
-              placeholder="tu@email.com"
+              placeholder="tu@unityfinancialnetwork.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -115,7 +157,9 @@ export default function RegisterPage() {
             />
 
             {error && (
-              <p className="text-sm text-red-500 text-center">{error}</p>
+              <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                <p className="text-sm text-red-600 dark:text-red-400 text-center">{error}</p>
+              </div>
             )}
 
             <Button type="submit" isLoading={isLoading} className="w-full" size="lg">

@@ -171,3 +171,5 @@ storybook-static/
 **/public/sw.js.map
 **/public/workbox-*.js.map
 telnyx-meet-example
+
+/src/generated/prisma

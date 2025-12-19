@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { signIn, useSession } from 'next-auth/react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 
@@ -11,28 +12,51 @@ import { Input } from '@/components/ui/Input';
  */
 export default function LoginPage() {
   const router = useRouter();
+  const { data: session, status } = useSession();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (status === 'authenticated') {
+      router.push('/dashboard');
+    }
+  }, [status, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError(null);
 
-    // Simular autenticación (en producción conectar con backend real)
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const result = await signIn('credentials', {
+        email,
+        password,
+        redirect: false,
+      });
 
-      // Por ahora, redirigir directamente
-      router.push('/room/create');
+      if (result?.error) {
+        setError(result.error);
+      } else {
+        router.push('/dashboard');
+      }
     } catch {
       setError('Error al iniciar sesión. Intenta de nuevo.');
     } finally {
       setIsLoading(false);
     }
   };
+
+  // Show loading while checking session
+  if (status === 'loading') {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-unity-purple border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-unity-purple/10 to-unity-orange/10 dark:from-unity-darker dark:to-unity-dark-gray flex items-center justify-center p-4">
@@ -67,7 +91,7 @@ export default function LoginPage() {
             <Input
               label="Correo electrónico"
               type="email"
-              placeholder="tu@email.com"
+              placeholder="tu@unityfinancialnetwork.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -83,32 +107,15 @@ export default function LoginPage() {
             />
 
             {error && (
-              <p className="text-sm text-red-500 text-center">{error}</p>
+              <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                <p className="text-sm text-red-600 dark:text-red-400 text-center">{error}</p>
+              </div>
             )}
 
             <Button type="submit" isLoading={isLoading} className="w-full" size="lg">
               Iniciar sesión
             </Button>
           </form>
-
-          {/* Separador */}
-          <div className="relative my-8">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-unity-light-gray dark:border-unity-darker" />
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-white dark:bg-unity-dark-gray text-gray-500">
-                o continúa sin cuenta
-              </span>
-            </div>
-          </div>
-
-          {/* Botón de invitado */}
-          <Link href="/room/create">
-            <Button variant="outline" className="w-full" size="lg">
-              Crear reunión como invitado
-            </Button>
-          </Link>
         </div>
 
         {/* Link a registro */}

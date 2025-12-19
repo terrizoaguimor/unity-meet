@@ -1,50 +1,152 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { Navbar } from '@/components/layout/Navbar';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 
-/**
- * Página mejorada para crear una nueva sala de reunión
- */
+type MeetingType = 'instant' | 'scheduled' | 'webinar';
+
+interface WebinarSettings {
+  enableQA: boolean;
+  enablePolls: boolean;
+  enableChat: boolean;
+  enableHandRaise: boolean;
+  registrationRequired: boolean;
+}
+
+// Main page wrapper with Suspense
 export default function CreateRoomPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-unity-darker">
+        <div className="w-12 h-12 border-4 border-unity-purple border-t-transparent rounded-full animate-spin" />
+      </div>
+    }>
+      <CreateRoomContent />
+    </Suspense>
+  );
+}
+
+function CreateRoomContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const { data: session, status } = useSession();
+
   const [roomName, setRoomName] = useState('');
+  const [description, setDescription] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [joinCode, setJoinCode] = useState('');
   const [activeTab, setActiveTab] = useState<'create' | 'join'>('create');
 
-  // Opciones de tipo de reunión
-  const [meetingType, setMeetingType] = useState<'instant' | 'scheduled' | 'webinar'>('instant');
+  // Meeting options
+  const [meetingType, setMeetingType] = useState<MeetingType>('instant');
   const [enableRecording, setEnableRecording] = useState(false);
   const [enableWaitingRoom, setEnableWaitingRoom] = useState(false);
   const [maxParticipants, setMaxParticipants] = useState(50);
+  const [isPublic, setIsPublic] = useState(true);
+  const [password, setPassword] = useState('');
 
-  // Crear sala - JaaS no requiere crear sala en el servidor
-  // Solo generamos un ID único y redirigimos
+  // Scheduled meeting options
+  const [scheduledDate, setScheduledDate] = useState('');
+  const [scheduledTime, setScheduledTime] = useState('');
+  const [duration, setDuration] = useState(60); // minutes
+
+  // Webinar settings
+  const [webinarSettings, setWebinarSettings] = useState<WebinarSettings>({
+    enableQA: true,
+    enablePolls: true,
+    enableChat: true,
+    enableHandRaise: true,
+    registrationRequired: false,
+  });
+
+  // Set initial meeting type from URL params
+  useEffect(() => {
+    const typeParam = searchParams.get('type');
+    if (typeParam && ['instant', 'scheduled', 'webinar'].includes(typeParam)) {
+      setMeetingType(typeParam as MeetingType);
+    }
+  }, [searchParams]);
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (status === 'unauthenticated') {
+      router.push('/login?callbackUrl=/room/create');
+    }
+  }, [status, router]);
+
+  // Set default date/time for scheduled meetings
+  useEffect(() => {
+    if (meetingType === 'scheduled' || meetingType === 'webinar') {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(10, 0, 0, 0);
+      setScheduledDate(tomorrow.toISOString().split('T')[0]);
+      setScheduledTime('10:00');
+    }
+  }, [meetingType]);
+
   const handleCreateRoom = async () => {
+    if (!session?.user) {
+      setError('Debes iniciar sesión para crear una reunión');
+      return;
+    }
+
     setIsCreating(true);
     setError(null);
 
     try {
-      // Generar ID único para la sala
-      const roomId = roomName
-        ? roomName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
-        : `room-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
+      // Calculate scheduled times
+      let scheduledStart: Date | undefined;
+      let scheduledEnd: Date | undefined;
 
-      // Con JaaS, la sala se crea automáticamente cuando alguien se une
-      router.push(`/room/${roomId}`);
-    } catch {
-      setError('Error al crear la sala. Intenta de nuevo.');
+      if (meetingType !== 'instant' && scheduledDate && scheduledTime) {
+        scheduledStart = new Date(`${scheduledDate}T${scheduledTime}`);
+        scheduledEnd = new Date(scheduledStart.getTime() + duration * 60 * 1000);
+      }
+
+      const response = await fetch('/api/meetings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: roomName || (meetingType === 'webinar' ? 'Webinar de Unity Meet' : 'Reunión de Unity Meet'),
+          type: meetingType.toUpperCase(),
+          description,
+          scheduledStart: scheduledStart?.toISOString(),
+          scheduledEnd: scheduledEnd?.toISOString(),
+          maxParticipants: meetingType === 'webinar' ? 500 : maxParticipants,
+          enableWaitingRoom,
+          enableRecording,
+          isPublic,
+          password: !isPublic ? password : undefined,
+          webinarSettings: meetingType === 'webinar' ? webinarSettings : undefined,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Error al crear la reunión');
+      }
+
+      // Redirect based on meeting type
+      if (meetingType === 'instant') {
+        router.push(`/room/${data.meeting.roomId}`);
+      } else {
+        // For scheduled meetings and webinars, go to dashboard with success message
+        router.push(`/dashboard?created=${data.meeting.roomId}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al crear la reunión');
       setIsCreating(false);
     }
   };
 
-  // Unirse con código
   const handleJoinRoom = () => {
     if (joinCode.trim()) {
       let roomId = joinCode.trim();
@@ -55,6 +157,20 @@ export default function CreateRoomPage() {
       router.push(`/room/${roomId}`);
     }
   };
+
+  // Show loading while checking auth
+  if (status === 'loading') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-unity-darker">
+        <div className="w-12 h-12 border-4 border-unity-purple border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // Don't render if not authenticated (will redirect)
+  if (!session) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-neutral-50 to-neutral-100 dark:from-neutral-950 dark:to-neutral-900">
@@ -134,8 +250,6 @@ export default function CreateRoomPage() {
                       description="Agenda para después"
                       selected={meetingType === 'scheduled'}
                       onClick={() => setMeetingType('scheduled')}
-                      badge="Próximamente"
-                      disabled
                     />
                     <MeetingTypeCard
                       icon={
@@ -147,8 +261,6 @@ export default function CreateRoomPage() {
                       description="Hasta 500 asistentes"
                       selected={meetingType === 'webinar'}
                       onClick={() => setMeetingType('webinar')}
-                      badge="Próximamente"
-                      disabled
                     />
                   </div>
                 </div>
@@ -156,8 +268,8 @@ export default function CreateRoomPage() {
                 {/* Room Name */}
                 <div className="mb-6">
                   <Input
-                    label="Nombre de la reunión (opcional)"
-                    placeholder="Ej: Reunión de equipo semanal"
+                    label={meetingType === 'webinar' ? 'Título del webinar' : 'Nombre de la reunión'}
+                    placeholder={meetingType === 'webinar' ? 'Ej: Presentación de resultados Q4' : 'Ej: Reunión de equipo semanal'}
                     value={roomName}
                     onChange={(e) => setRoomName(e.target.value)}
                     leftIcon={
@@ -168,6 +280,106 @@ export default function CreateRoomPage() {
                   />
                 </div>
 
+                {/* Description for scheduled/webinar */}
+                {(meetingType === 'scheduled' || meetingType === 'webinar') && (
+                  <div className="mb-6">
+                    <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+                      Descripción (opcional)
+                    </label>
+                    <textarea
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      placeholder="Describe el tema de la reunión..."
+                      rows={3}
+                      className="w-full px-4 py-3 rounded-xl border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white placeholder-neutral-500 focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none"
+                    />
+                  </div>
+                )}
+
+                {/* Schedule Date/Time for scheduled meetings and webinars */}
+                {(meetingType === 'scheduled' || meetingType === 'webinar') && (
+                  <div className="mb-6 grid sm:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+                        Fecha
+                      </label>
+                      <input
+                        type="date"
+                        value={scheduledDate}
+                        onChange={(e) => setScheduledDate(e.target.value)}
+                        min={new Date().toISOString().split('T')[0]}
+                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+                        Hora
+                      </label>
+                      <input
+                        type="time"
+                        value={scheduledTime}
+                        onChange={(e) => setScheduledTime(e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+                        Duración
+                      </label>
+                      <select
+                        value={duration}
+                        onChange={(e) => setDuration(Number(e.target.value))}
+                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      >
+                        <option value={30}>30 minutos</option>
+                        <option value={60}>1 hora</option>
+                        <option value={90}>1.5 horas</option>
+                        <option value={120}>2 horas</option>
+                        <option value={180}>3 horas</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {/* Webinar Settings */}
+                {meetingType === 'webinar' && (
+                  <div className="mb-8 p-4 bg-secondary-50 dark:bg-secondary-900/20 rounded-xl border border-secondary-200 dark:border-secondary-800">
+                    <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-4 flex items-center gap-2">
+                      <svg className="w-5 h-5 text-secondary-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      Configuración del Webinar
+                    </h3>
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <WebinarToggle
+                        label="Preguntas y Respuestas"
+                        description="Permitir Q&A"
+                        checked={webinarSettings.enableQA}
+                        onChange={(checked) => setWebinarSettings(prev => ({ ...prev, enableQA: checked }))}
+                      />
+                      <WebinarToggle
+                        label="Encuestas"
+                        description="Crear polls en vivo"
+                        checked={webinarSettings.enablePolls}
+                        onChange={(checked) => setWebinarSettings(prev => ({ ...prev, enablePolls: checked }))}
+                      />
+                      <WebinarToggle
+                        label="Chat"
+                        description="Chat para asistentes"
+                        checked={webinarSettings.enableChat}
+                        onChange={(checked) => setWebinarSettings(prev => ({ ...prev, enableChat: checked }))}
+                      />
+                      <WebinarToggle
+                        label="Levantar mano"
+                        description="Solicitar participar"
+                        checked={webinarSettings.enableHandRaise}
+                        onChange={(checked) => setWebinarSettings(prev => ({ ...prev, enableHandRaise: checked }))}
+                      />
+                    </div>
+                  </div>
+                )}
+
                 {/* Options */}
                 <div className="space-y-4 mb-8">
                   <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
@@ -175,32 +387,34 @@ export default function CreateRoomPage() {
                   </h3>
 
                   <div className="grid sm:grid-cols-2 gap-4">
-                    {/* Max Participants */}
-                    <div className="p-4 bg-neutral-50 dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-700">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-lg bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center text-primary-600 dark:text-primary-400">
-                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                            </svg>
+                    {/* Max Participants (not for webinar) */}
+                    {meetingType !== 'webinar' && (
+                      <div className="p-4 bg-neutral-50 dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-700">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center text-primary-600 dark:text-primary-400">
+                              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                              </svg>
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-neutral-900 dark:text-white">Participantes</p>
+                              <p className="text-xs text-neutral-500">Máximo permitido</p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="text-sm font-medium text-neutral-900 dark:text-white">Participantes</p>
-                            <p className="text-xs text-neutral-500">Máximo permitido</p>
-                          </div>
+                          <select
+                            value={maxParticipants}
+                            onChange={(e) => setMaxParticipants(Number(e.target.value))}
+                            className="px-3 py-1.5 text-sm rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white"
+                          >
+                            <option value={10}>10</option>
+                            <option value={25}>25</option>
+                            <option value={50}>50</option>
+                            <option value={100}>100</option>
+                          </select>
                         </div>
-                        <select
-                          value={maxParticipants}
-                          onChange={(e) => setMaxParticipants(Number(e.target.value))}
-                          className="px-3 py-1.5 text-sm rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white"
-                        >
-                          <option value={10}>10</option>
-                          <option value={25}>25</option>
-                          <option value={50}>50</option>
-                          <option value={100}>100</option>
-                        </select>
                       </div>
-                    </div>
+                    )}
 
                     {/* Recording */}
                     <div className="p-4 bg-neutral-50 dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-700">
@@ -216,15 +430,7 @@ export default function CreateRoomPage() {
                             <p className="text-xs text-neutral-500">Guardar en la nube</p>
                           </div>
                         </div>
-                        <label className="relative inline-flex items-center cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={enableRecording}
-                            onChange={(e) => setEnableRecording(e.target.checked)}
-                            className="sr-only peer"
-                          />
-                          <div className="w-11 h-6 bg-neutral-300 dark:bg-neutral-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
-                        </label>
+                        <ToggleSwitch checked={enableRecording} onChange={setEnableRecording} />
                       </div>
                     </div>
 
@@ -242,38 +448,60 @@ export default function CreateRoomPage() {
                             <p className="text-xs text-neutral-500">Aprobar entrada</p>
                           </div>
                         </div>
-                        <label className="relative inline-flex items-center cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={enableWaitingRoom}
-                            onChange={(e) => setEnableWaitingRoom(e.target.checked)}
-                            className="sr-only peer"
-                          />
-                          <div className="w-11 h-6 bg-neutral-300 dark:bg-neutral-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
-                        </label>
+                        <ToggleSwitch checked={enableWaitingRoom} onChange={setEnableWaitingRoom} />
                       </div>
                     </div>
 
-                    {/* Public Link */}
+                    {/* Public/Private */}
                     <div className="p-4 bg-neutral-50 dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-700">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center text-green-600 dark:text-green-400">
-                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                            </svg>
+                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                            isPublic
+                              ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400'
+                              : 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
+                          }`}>
+                            {isPublic ? (
+                              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                              </svg>
+                            ) : (
+                              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                              </svg>
+                            )}
                           </div>
                           <div>
-                            <p className="text-sm font-medium text-neutral-900 dark:text-white">Link público</p>
-                            <p className="text-xs text-neutral-500">Para prospectos</p>
+                            <p className="text-sm font-medium text-neutral-900 dark:text-white">
+                              {isPublic ? 'Reunión pública' : 'Reunión privada'}
+                            </p>
+                            <p className="text-xs text-neutral-500">
+                              {isPublic ? 'Cualquiera con el link' : 'Solo invitados'}
+                            </p>
                           </div>
                         </div>
-                        <span className="text-xs font-medium px-2 py-1 rounded-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400">
-                          Incluido
-                        </span>
+                        <ToggleSwitch checked={isPublic} onChange={setIsPublic} />
                       </div>
                     </div>
                   </div>
+
+                  {/* Password field for private meetings */}
+                  {!isPublic && (
+                    <div className="p-4 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800">
+                      <Input
+                        label="Contraseña de la reunión"
+                        type="password"
+                        placeholder="Ingresa una contraseña"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        leftIcon={
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                          </svg>
+                        }
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {/* Error */}
@@ -296,7 +524,12 @@ export default function CreateRoomPage() {
                   <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                   </svg>
-                  Crear reunión ahora
+                  {meetingType === 'instant'
+                    ? 'Crear reunión ahora'
+                    : meetingType === 'scheduled'
+                    ? 'Programar reunión'
+                    : 'Crear webinar'
+                  }
                 </Button>
               </div>
 
@@ -385,16 +618,17 @@ export default function CreateRoomPage() {
 
           {/* Quick Actions */}
           <div className="mt-8 grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <QuickAction
-              icon={
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              }
-              label="Reuniones recientes"
-              sublabel="Ver historial"
-              disabled
-            />
+            <Link href="/dashboard">
+              <QuickAction
+                icon={
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                  </svg>
+                }
+                label="Dashboard"
+                sublabel="Ver panel"
+              />
+            </Link>
             <QuickAction
               icon={
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -402,7 +636,7 @@ export default function CreateRoomPage() {
                 </svg>
               }
               label="Programadas"
-              sublabel="Próximamente"
+              sublabel="Ver calendario"
               disabled
             />
             <QuickAction
@@ -431,17 +665,55 @@ export default function CreateRoomPage() {
           {/* Back Link */}
           <div className="text-center mt-8">
             <Link
-              href="/"
+              href="/dashboard"
               className="inline-flex items-center gap-2 text-sm text-primary-600 dark:text-primary-400 hover:underline"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
               </svg>
-              Volver al inicio
+              Volver al dashboard
             </Link>
           </div>
         </div>
       </main>
+    </div>
+  );
+}
+
+// Toggle Switch Component
+function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <label className="relative inline-flex items-center cursor-pointer">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="sr-only peer"
+      />
+      <div className="w-11 h-6 bg-neutral-300 dark:bg-neutral-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+    </label>
+  );
+}
+
+// Webinar Toggle Component
+function WebinarToggle({
+  label,
+  description,
+  checked,
+  onChange
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between p-3 bg-white dark:bg-neutral-800 rounded-lg">
+      <div>
+        <p className="text-sm font-medium text-neutral-900 dark:text-white">{label}</p>
+        <p className="text-xs text-neutral-500">{description}</p>
+      </div>
+      <ToggleSwitch checked={checked} onChange={onChange} />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { GSAPProvider } from '@/components/animations/GSAPProvider';
+import { SessionProvider } from '@/components/providers/SessionProvider';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -62,7 +63,9 @@ export default function RootLayout({
         <link rel="manifest" href="/manifest.json" />
       </head>
       <body className="min-h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 antialiased">
-        <GSAPProvider>{children}</GSAPProvider>
+        <SessionProvider>
+          <GSAPProvider>{children}</GSAPProvider>
+        </SessionProvider>
       </body>
     </html>
   );
