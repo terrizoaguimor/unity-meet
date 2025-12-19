@@ -252,13 +252,27 @@ export function useTelnyxRoom({
       // 4. Configurar event listeners
       setupEventListeners(client);
 
-      // 5. Conectar a la sala PRIMERO (como en telnyx-meet)
+      // 4.5. Pequeña pausa para asegurar que el SDK está listo
+      updateStatus('4/7 Esperando SDK...');
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // 5. Conectar a la sala (como en telnyx-meet)
       updateStatus('5/7 Conectando a la sala (WebRTC)...');
-      await withTimeout(
-        client.connect(),
-        CONNECT_TIMEOUT,
-        'conectar a la sala (WebRTC)'
-      );
+      console.log('[useTelnyxRoom] Llamando client.connect()...');
+      console.log('[useTelnyxRoom] roomId:', roomIdRef.current);
+      console.log('[useTelnyxRoom] token length:', token.length);
+
+      try {
+        await withTimeout(
+          client.connect(),
+          CONNECT_TIMEOUT,
+          'conectar a la sala (WebRTC)'
+        );
+      } catch (connectError) {
+        console.error('[useTelnyxRoom] Connect error details:', connectError);
+        throw connectError;
+      }
+
       updateStatus('6/7 Conectado a la sala');
 
       // 6. Obtener stream local DESPUÉS de conectar
