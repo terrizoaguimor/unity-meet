@@ -5,8 +5,9 @@ import { TelnyxVideoClient, createTelnyxClient } from '@/lib/telnyx/client';
 import { useRoomStore } from '@/stores/roomStore';
 import type { ConnectionState, Participant } from '@/types';
 
-// Timeout para operaciones asíncronas (15 segundos)
+// Timeout para operaciones asíncronas
 const OPERATION_TIMEOUT = 15000;
+const CONNECT_TIMEOUT = 30000; // WebRTC connect puede tardar más
 
 /**
  * Envolver una promesa con timeout
@@ -261,12 +262,12 @@ export function useTelnyxRoom({
       setLocalStream(stream);
       updateStatus('6/7 Stream local obtenido');
 
-      // 6. Conectar a la sala (con timeout)
-      updateStatus('6/7 Conectando a la sala...');
+      // 6. Conectar a la sala (con timeout más largo para WebRTC)
+      updateStatus('6/7 Conectando a la sala (WebRTC)...');
       await withTimeout(
         client.connect(),
-        OPERATION_TIMEOUT,
-        'conectar a la sala'
+        CONNECT_TIMEOUT,
+        'conectar a la sala (WebRTC)'
       );
       updateStatus('7/7 Conectado a la sala');
 

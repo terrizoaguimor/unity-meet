@@ -100,11 +100,28 @@ export class TelnyxVideoClient {
     }
 
     try {
+      console.log('[TelnyxClient] Iniciando room.connect()...');
+      console.log('[TelnyxClient] Room state before connect:', this.room.getState());
+
+      // Agregar listener para errores de conexión
+      this.room.on('error', (error: unknown) => {
+        console.error('[TelnyxClient] Room error event:', error);
+      });
+
       await this.room.connect();
+
+      console.log('[TelnyxClient] room.connect() completado');
+      console.log('[TelnyxClient] Room state after connect:', this.room.getState());
       this.isConnected = true;
     } catch (error) {
-      console.error('Error al conectar:', error);
-      throw new Error('No se pudo conectar a la sala');
+      console.error('[TelnyxClient] Error al conectar:', error);
+      // Intentar obtener más detalles del error
+      if (error instanceof Error) {
+        console.error('[TelnyxClient] Error name:', error.name);
+        console.error('[TelnyxClient] Error message:', error.message);
+        console.error('[TelnyxClient] Error stack:', error.stack);
+      }
+      throw new Error(`No se pudo conectar a la sala: ${error instanceof Error ? error.message : 'Error desconocido'}`);
     }
   }
 
