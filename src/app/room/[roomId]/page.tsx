@@ -84,13 +84,13 @@ export default function RoomPage() {
   }), [userName]);
   const { sendMessage } = useChat(chatOptions);
 
-  // Recording
+  // Recording - pasar localStream para grabar directamente sin pedir pantalla
   const {
     isRecording,
     duration: recordingDuration,
     startRecording,
     stopRecording,
-  } = useRecording({ roomId });
+  } = useRecording({ roomId, localStream });
 
   // Toggle recording
   const handleToggleRecording = useCallback(() => {

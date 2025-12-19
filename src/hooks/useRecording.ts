@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 
 interface UseRecordingOptions {
   roomId: string;
+  localStream?: MediaStream | null;
   onStatusChange?: (status: string) => void;
 }
 
@@ -18,9 +19,10 @@ interface RecordingState {
 }
 
 /**
- * Hook para grabar la reunión localmente y subir a DO Spaces
+ * Hook para grabar la reunión y subir a DO Spaces
+ * Graba directamente los streams de la reunión sin pedir compartir pantalla
  */
-export function useRecording({ roomId, onStatusChange }: UseRecordingOptions) {
+export function useRecording({ roomId, localStream, onStatusChange }: UseRecordingOptions) {
   const [state, setState] = useState<RecordingState>({
     isRecording: false,
     isPaused: false,
@@ -33,9 +35,11 @@ export function useRecording({ roomId, onStatusChange }: UseRecordingOptions) {
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const streamRef = useRef<MediaStream | null>(null);
+  const combinedStreamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const startTimeRef = useRef<number>(0);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const destinationRef = useRef<MediaStreamAudioDestinationNode | null>(null);
 
   const updateStatus = useCallback((status: string) => {
     console.log(`[useRecording] ${status}`);
@@ -43,44 +47,114 @@ export function useRecording({ roomId, onStatusChange }: UseRecordingOptions) {
   }, [onStatusChange]);
 
   /**
-   * Iniciar grabación
+   * Combinar todos los audio tracks de la reunión
+   */
+  const combineAudioTracks = useCallback(() => {
+    // Buscar todos los elementos de audio en la página (participantes remotos)
+    const audioElements = document.querySelectorAll<HTMLAudioElement>('audio');
+    const videoElements = document.querySelectorAll<HTMLVideoElement>('video:not([muted])');
+
+    // Crear AudioContext para mezclar audio
+    const audioContext = new AudioContext();
+    audioContextRef.current = audioContext;
+
+    const destination = audioContext.createMediaStreamDestination();
+    destinationRef.current = destination;
+
+    // Añadir audio local si existe
+    if (localStream) {
+      const localAudioTracks = localStream.getAudioTracks();
+      if (localAudioTracks.length > 0) {
+        try {
+          const localSource = audioContext.createMediaStreamSource(new MediaStream(localAudioTracks));
+          localSource.connect(destination);
+          console.log('[useRecording] Added local audio');
+        } catch (err) {
+          console.warn('[useRecording] Could not add local audio:', err);
+        }
+      }
+    }
+
+    // Añadir audio de elementos audio (participantes remotos)
+    audioElements.forEach((audioEl, index) => {
+      try {
+        if (audioEl.srcObject) {
+          const source = audioContext.createMediaStreamSource(audioEl.srcObject as MediaStream);
+          source.connect(destination);
+          console.log(`[useRecording] Added audio element ${index}`);
+        }
+      } catch (err) {
+        console.warn(`[useRecording] Could not add audio element ${index}:`, err);
+      }
+    });
+
+    // Añadir audio de elementos video que no están silenciados
+    videoElements.forEach((videoEl, index) => {
+      try {
+        if (videoEl.srcObject) {
+          const stream = videoEl.srcObject as MediaStream;
+          const audioTracks = stream.getAudioTracks();
+          if (audioTracks.length > 0) {
+            const source = audioContext.createMediaStreamSource(new MediaStream(audioTracks));
+            source.connect(destination);
+            console.log(`[useRecording] Added video audio ${index}`);
+          }
+        }
+      } catch (err) {
+        console.warn(`[useRecording] Could not add video audio ${index}:`, err);
+      }
+    });
+
+    return destination.stream;
+  }, [localStream]);
+
+  /**
+   * Iniciar grabación - graba el video local + todo el audio mezclado
    */
   const startRecording = useCallback(async () => {
     try {
       updateStatus('Iniciando grabación...');
       setState(prev => ({ ...prev, error: null }));
 
-      // Capturar pantalla con audio
-      const displayStream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          frameRate: { ideal: 30 },
-        },
-        audio: true,
-      });
-
-      // Intentar capturar audio del sistema
-      let audioStream: MediaStream | null = null;
-      try {
-        audioStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-          },
-        });
-      } catch (err) {
-        console.warn('[useRecording] Could not get mic audio:', err);
+      // Obtener video local
+      let videoTrack: MediaStreamTrack | null = null;
+      if (localStream) {
+        const videoTracks = localStream.getVideoTracks();
+        if (videoTracks.length > 0) {
+          videoTrack = videoTracks[0];
+        }
       }
 
-      // Combinar streams
-      const tracks = [...displayStream.getTracks()];
-      if (audioStream) {
-        tracks.push(...audioStream.getAudioTracks());
+      // Si no hay video local, intentar obtener de la cámara
+      if (!videoTrack) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 1920 }, height: { ideal: 1080 } }
+          });
+          videoTrack = stream.getVideoTracks()[0];
+        } catch (err) {
+          console.warn('[useRecording] No video available:', err);
+        }
+      }
+
+      // Combinar audio de todos los participantes
+      const audioStream = combineAudioTracks();
+
+      // Crear stream combinado
+      const tracks: MediaStreamTrack[] = [];
+      if (videoTrack) {
+        tracks.push(videoTrack.clone());
+      }
+      audioStream.getAudioTracks().forEach(track => {
+        tracks.push(track);
+      });
+
+      if (tracks.length === 0) {
+        throw new Error('No hay tracks disponibles para grabar');
       }
 
       const combinedStream = new MediaStream(tracks);
-      streamRef.current = combinedStream;
+      combinedStreamRef.current = combinedStream;
 
       // Configurar MediaRecorder
       const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
@@ -91,7 +165,8 @@ export function useRecording({ roomId, onStatusChange }: UseRecordingOptions) {
 
       const mediaRecorder = new MediaRecorder(combinedStream, {
         mimeType,
-        videoBitsPerSecond: 3000000, // 3 Mbps
+        videoBitsPerSecond: 2500000, // 2.5 Mbps
+        audioBitsPerSecond: 128000,  // 128 kbps
       });
 
       chunksRef.current = [];
@@ -105,14 +180,14 @@ export function useRecording({ roomId, onStatusChange }: UseRecordingOptions) {
       mediaRecorder.onstop = async () => {
         updateStatus('Procesando grabación...');
         const blob = new Blob(chunksRef.current, { type: mimeType });
-        await uploadRecording(blob);
-      };
 
-      // Detectar cuando el usuario deja de compartir
-      displayStream.getVideoTracks()[0].onended = () => {
-        if (state.isRecording) {
-          stopRecording();
+        // Limpiar AudioContext
+        if (audioContextRef.current) {
+          audioContextRef.current.close();
+          audioContextRef.current = null;
         }
+
+        await uploadRecording(blob);
       };
 
       mediaRecorderRef.current = mediaRecorder;
@@ -139,7 +214,7 @@ export function useRecording({ roomId, onStatusChange }: UseRecordingOptions) {
       setState(prev => ({ ...prev, error: message }));
       updateStatus(`Error: ${message}`);
     }
-  }, [updateStatus, state.isRecording]);
+  }, [localStream, combineAudioTracks, updateStatus]);
 
   /**
    * Detener grabación
@@ -156,9 +231,10 @@ export function useRecording({ roomId, onStatusChange }: UseRecordingOptions) {
       mediaRecorderRef.current.stop();
     }
 
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
+    // Limpiar streams
+    if (combinedStreamRef.current) {
+      combinedStreamRef.current.getTracks().forEach(track => track.stop());
+      combinedStreamRef.current = null;
     }
 
     setState(prev => ({ ...prev, isRecording: false, isPaused: false }));
@@ -258,17 +334,36 @@ export function useRecording({ roomId, onStatusChange }: UseRecordingOptions) {
         isUploading: false,
         error: message,
       }));
-      updateStatus(`Error: ${message}`);
+      updateStatus(`Error de subida. Descargando localmente...`);
 
       // Ofrecer descarga local como fallback
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = `recording-${roomId}-${Date.now()}.webm`;
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
       URL.revokeObjectURL(url);
+
+      updateStatus('Grabación descargada localmente');
     }
   }, [roomId, state.duration, updateStatus]);
+
+  // Limpiar al desmontar
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+      }
+      if (combinedStreamRef.current) {
+        combinedStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
 
   return {
     ...state,
