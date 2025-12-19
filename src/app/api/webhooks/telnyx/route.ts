@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { TelnyxWebhookEvent } from '@/lib/telnyx/types';
+import { getTelnyxAPI } from '@/lib/telnyx/api';
 
 /**
  * POST /api/webhooks/telnyx
@@ -23,14 +24,20 @@ export async function POST(request: NextRequest) {
         console.log(
           `[Telnyx] Sesión iniciada en sala ${event.payload.room_id}`
         );
-        // Aquí podrías notificar a los usuarios suscritos, actualizar DB, etc.
         break;
 
       case 'room.session.ended':
         console.log(
           `[Telnyx] Sesión terminada en sala ${event.payload.room_id}`
         );
-        // Limpiar recursos, actualizar estadísticas, etc.
+        // Eliminar la sala automáticamente cuando la sesión termina
+        try {
+          const telnyxApi = getTelnyxAPI();
+          await telnyxApi.deleteRoom(event.payload.room_id);
+          console.log(`[Telnyx] Sala ${event.payload.room_id} eliminada exitosamente`);
+        } catch (deleteError) {
+          console.error(`[Telnyx] Error al eliminar sala ${event.payload.room_id}:`, deleteError);
+        }
         break;
 
       case 'room.participant.joined':

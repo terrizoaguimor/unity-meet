@@ -127,11 +127,21 @@ export default function RoomPage() {
   );
 
   // Manejar salir de la sala
-  const handleLeave = useCallback(() => {
+  const handleLeave = useCallback(async () => {
     stopScreenShare();
     disconnect();
+
+    // Intentar eliminar la sala (limpieza)
+    // La sala también se eliminará via webhook cuando la sesión termine
+    try {
+      await fetch(`/api/rooms/${roomId}`, { method: 'DELETE' });
+    } catch (err) {
+      // Ignorar errores de eliminación - el webhook lo manejará
+      console.log('Room cleanup delegated to webhook');
+    }
+
     router.push('/');
-  }, [disconnect, stopScreenShare, router]);
+  }, [disconnect, stopScreenShare, router, roomId]);
 
   // Confirmar salida
   const confirmLeave = () => {
