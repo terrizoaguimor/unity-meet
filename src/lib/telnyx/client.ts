@@ -44,7 +44,7 @@ export class TelnyxVideoClient {
       this.room = await initialize({
         roomId: this.roomId,
         clientToken: this.token,
-        logLevel: 'WARN',
+        logLevel: 'DEBUG', // Enable debug to see what's happening
         enableMessages: true,
       });
 
