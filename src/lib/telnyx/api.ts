@@ -44,8 +44,16 @@ class TelnyxAPI {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.errors?.[0]?.detail || 'Error al crear la sala');
+      const errorData = await response.json();
+      console.error('Telnyx API Error:', {
+        status: response.status,
+        statusText: response.statusText,
+        errors: errorData.errors,
+      });
+      const errorMessage = errorData.errors?.[0]?.detail ||
+                          errorData.errors?.[0]?.title ||
+                          `Error ${response.status}: ${response.statusText}`;
+      throw new Error(errorMessage);
     }
 
     return response.json();
