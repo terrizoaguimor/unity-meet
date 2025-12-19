@@ -103,11 +103,6 @@ export class TelnyxVideoClient {
       console.log('[TelnyxClient] Iniciando room.connect()...');
       console.log('[TelnyxClient] Room state before connect:', this.room.getState());
 
-      // Agregar listener para errores de conexión
-      this.room.on('error', (error: unknown) => {
-        console.error('[TelnyxClient] Room error event:', error);
-      });
-
       await this.room.connect();
 
       console.log('[TelnyxClient] room.connect() completado');
