@@ -42,11 +42,12 @@
     "tailwindcss": "^4",
     "typescript": "^5.7.2",
     "uuid": "^13.0.0",
-    "zustand": "^5.0.1"
-  },
-  "devDependencies": {
+    "zustand": "^5.0.1",
     "@types/bcryptjs": "^2.4.6",
     "@types/pg": "^8.16.0",
     "prisma": "^7.2.0"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }
