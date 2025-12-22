@@ -96,6 +96,9 @@ model Meeting {
   polls           Poll[]
   questions       Question[]
 
+  // AI Intelligence
+  aiSummary       MeetingSummary?
+
   @@index([hostId])
   @@index([roomId])
   @@index([status])
@@ -301,4 +304,55 @@ enum ReminderType {
   ONE_DAY
   ONE_HOUR
   FIFTEEN_MIN
+}
+
+// ==================== AI MEETING INTELLIGENCE ====================
+
+model MeetingSummary {
+  id          String   @id @default(cuid())
+  meetingId   String   @unique
+  meeting     Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  // Transcript data
+  transcript     String?  @db.Text // Raw transcript text
+  transcriptJson Json?    // Structured transcript [{speaker, text, timestamp}]
+
+  // AI-generated content
+  title          String?
+  summary        String?  @db.Text
+  keyPoints      Json?    // string[]
+  language       String   @default("es")
+
+  // Analysis
+  topics         Json?    // [{name, duration, percentage}]
+  sentiment      String?  // positive, neutral, negative
+  participation  Json?    // [{participant, speakingTime, percentage}]
+  suggestions    Json?    // string[]
+
+  // Action items
+  actionItems    Json?    // [{task, assignee, dueDate, priority, context}]
+
+  // Follow-up email
+  followUpEmail  Json?    // {subject, body}
+
+  // Status
+  status         AISummaryStatus @default(PENDING)
+  errorMessage   String?
+
+  // Timestamps
+  generatedAt    DateTime?
+  emailSentAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([meetingId])
+  @@index([status])
+}
+
+enum AISummaryStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  EMAIL_SENT
 }

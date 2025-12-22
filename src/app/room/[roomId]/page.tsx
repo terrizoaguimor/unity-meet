@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { JitsiMeetingRoom } from '@/components/room/JitsiMeetingRoom';
+import { useSession } from 'next-auth/react';
+import { JitsiMeetingRoom, type TranscriptEntry } from '@/components/room/JitsiMeetingRoom';
 
 interface PreJoinState {
   userName: string;
@@ -23,6 +24,7 @@ interface MeetingInfo {
 export default function RoomPage() {
   const params = useParams();
   const router = useRouter();
+  const { data: session, status } = useSession();
   const roomId = params.roomId as string;
 
   // Estados
@@ -31,22 +33,23 @@ export default function RoomPage() {
   const [jitsiDomain, setJitsiDomain] = useState<string | null>(null);
   const [meetingInfo, setMeetingInfo] = useState<MeetingInfo | null>(null);
   const hasEndedMeeting = useRef(false);
+  const transcriptRef = useRef<TranscriptEntry[]>([]);
+  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+  const autoJoinAttempted = useRef(false);
   const [preJoin, setPreJoin] = useState<PreJoinState>({
     userName: '',
     isLoading: false,
     error: null,
   });
 
-  // Manejar unirse a la sala
-  const handleJoin = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!preJoin.userName.trim()) {
+  // Función para unirse a la sala
+  const joinRoom = useCallback(async (userName: string) => {
+    if (!userName.trim()) {
       setPreJoin(prev => ({ ...prev, error: 'Por favor ingresa tu nombre' }));
       return;
     }
 
-    setPreJoin(prev => ({ ...prev, isLoading: true, error: null }));
+    setPreJoin(prev => ({ ...prev, userName, isLoading: true, error: null }));
 
     try {
       // Obtener JWT token del servidor (Jitsi self-hosted)
@@ -55,7 +58,7 @@ export default function RoomPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           roomName: roomId,
-          userName: preJoin.userName,
+          userName: userName,
         }),
       });
 
@@ -79,7 +82,68 @@ export default function RoomPage() {
         error: err instanceof Error ? err.message : 'Error al unirse a la sala',
       }));
     }
-  }, [preJoin.userName, roomId]);
+  }, [roomId]);
+
+  // Manejar unirse a la sala (desde formulario)
+  const handleJoin = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    await joinRoom(preJoin.userName);
+  }, [preJoin.userName, joinRoom]);
+
+  // Auto-join para usuarios autenticados
+  useEffect(() => {
+    if (status === 'authenticated' && session?.user?.name && !autoJoinAttempted.current && !hasJoined) {
+      autoJoinAttempted.current = true;
+      console.log('[RoomPage] Auto-joining as:', session.user.name);
+      joinRoom(session.user.name);
+    }
+  }, [status, session, hasJoined, joinRoom]);
+
+  // Manejar actualizaciones del transcript
+  const handleTranscriptUpdate = useCallback((transcript: TranscriptEntry[]) => {
+    transcriptRef.current = transcript;
+  }, []);
+
+  // Generar resumen AI cuando termina la reunión
+  const generateAISummary = useCallback(async (transcript: TranscriptEntry[]) => {
+    if (!meetingInfo?.id || transcript.length === 0) {
+      console.log('[RoomPage] No transcript available for AI summary');
+      return;
+    }
+
+    setIsGeneratingAI(true);
+    try {
+      const response = await fetch(`/api/meetings/${meetingInfo.id}/ai-summary`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transcript,
+          sendEmail: true,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        console.log('[RoomPage] AI Summary generated and emails sent:', data);
+      } else {
+        console.error('[RoomPage] Failed to generate AI summary:', data.error);
+      }
+    } catch (err) {
+      console.error('[RoomPage] Error generating AI summary:', err);
+    } finally {
+      setIsGeneratingAI(false);
+    }
+  }, [meetingInfo?.id]);
+
+  // Manejar cuando termina la reunión (desde el componente Jitsi)
+  const handleMeetingEnd = useCallback(async (data: { transcript: TranscriptEntry[]; duration: number }) => {
+    console.log('[RoomPage] Meeting ended with transcript:', data.transcript.length, 'entries, duration:', data.duration, 's');
+
+    // Generate AI summary if there's a transcript
+    if (data.transcript.length > 0) {
+      await generateAISummary(data.transcript);
+    }
+  }, [generateAISummary]);
 
   // Manejar salir de la sala
   const handleLeave = useCallback(async () => {
@@ -93,15 +157,49 @@ export default function RoomPage() {
           body: JSON.stringify({ action: 'end' }),
         });
         console.log('[RoomPage] Meeting ended successfully');
+
+        // Also generate AI summary if there's transcript available
+        if (transcriptRef.current.length > 0) {
+          await generateAISummary(transcriptRef.current);
+        }
       } catch (err) {
         console.error('[RoomPage] Failed to end meeting:', err);
       }
     }
     router.push('/dashboard');
-  }, [meetingInfo, router]);
+  }, [meetingInfo, router, generateAISummary]);
 
-  // Pantalla de pre-join
+  // Estado de carga mientras se verifica la sesión o auto-join
+  const isAutoJoining = status === 'loading' || (status === 'authenticated' && preJoin.isLoading);
+
+  // Pantalla de pre-join (solo para usuarios no autenticados o si falla auto-join)
   if (!hasJoined || !jwt) {
+    // Mostrar pantalla de carga para usuarios autenticados
+    if (isAutoJoining) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
+          <div className="fixed inset-0 overflow-hidden pointer-events-none">
+            <div className="absolute -top-40 -right-40 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl" />
+            <div className="absolute top-1/3 -left-40 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl" />
+            <div className="absolute -bottom-40 right-1/4 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl" />
+          </div>
+          <div className="relative text-center">
+            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-purple-500 to-orange-500 flex items-center justify-center mx-auto mb-6 shadow-lg shadow-purple-500/25">
+              <svg className="w-10 h-10 text-white animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <h1 className="text-3xl font-bold text-white mb-4">Conectando a la reunión...</h1>
+            <div className="w-48 h-1 bg-slate-700 rounded-full mx-auto overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-purple-500 to-orange-500 rounded-full animate-pulse" style={{ width: '60%' }} />
+            </div>
+            <p className="text-white/50 mt-4">Preparando tu sesión de video</p>
+          </div>
+        </div>
+      );
+    }
+
+    // Pantalla de pre-join para usuarios no autenticados (invitados)
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
         {/* Animated Background */}
@@ -240,12 +338,32 @@ export default function RoomPage() {
   // Meeting room
   return (
     <div className="h-screen w-screen overflow-hidden bg-gray-900">
+      {isGeneratingAI && (
+        <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-slate-800 rounded-2xl p-8 flex flex-col items-center gap-4 max-w-md mx-4">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500 to-orange-500 flex items-center justify-center animate-pulse">
+              <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-semibold text-white">Generando Resumen AI</h3>
+            <p className="text-white/60 text-center">
+              Analizando la transcripción de la reunión para generar el resumen y enviarlo a los participantes...
+            </p>
+            <div className="w-full bg-slate-700 rounded-full h-2 mt-2">
+              <div className="bg-gradient-to-r from-purple-500 to-orange-500 h-2 rounded-full animate-pulse" style={{ width: '75%' }} />
+            </div>
+          </div>
+        </div>
+      )}
       <JitsiMeetingRoom
         roomName={roomId}
         userName={preJoin.userName}
         jwt={jwt}
         domain={jitsiDomain || undefined}
         onReadyToClose={handleLeave}
+        onTranscriptUpdate={handleTranscriptUpdate}
+        onMeetingEnd={handleMeetingEnd}
         onRecordingStatusChanged={(isRecording) => {
           console.log('[RoomPage] Recording status:', isRecording);
         }}

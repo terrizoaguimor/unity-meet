@@ -4,6 +4,12 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { JitsiMeeting } from '@jitsi/react-sdk';
 import type { IJitsiMeetExternalApi } from '@jitsi/react-sdk/lib/types';
 
+export interface TranscriptEntry {
+  speaker: string;
+  text: string;
+  timestamp: string;
+}
+
 interface JitsiMeetingRoomProps {
   roomName: string;
   userName: string;
@@ -13,6 +19,8 @@ interface JitsiMeetingRoomProps {
   onParticipantJoined?: (participant: { id: string; displayName: string }) => void;
   onParticipantLeft?: (participant: { id: string }) => void;
   onRecordingStatusChanged?: (isRecording: boolean) => void;
+  onTranscriptUpdate?: (transcript: TranscriptEntry[]) => void;
+  onMeetingEnd?: (data: { transcript: TranscriptEntry[]; duration: number }) => void;
 }
 
 /**
@@ -28,9 +36,13 @@ export function JitsiMeetingRoom({
   onParticipantJoined,
   onParticipantLeft,
   onRecordingStatusChanged,
+  onTranscriptUpdate,
+  onMeetingEnd,
 }: JitsiMeetingRoomProps) {
   const apiRef = useRef<IJitsiMeetExternalApi | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const transcriptRef = useRef<TranscriptEntry[]>([]);
+  const meetingStartTimeRef = useRef<Date | null>(null);
 
   const jitsiDomain = domain || process.env.NEXT_PUBLIC_JITSI_DOMAIN || 'jitsi.byunity.net';
 
@@ -65,17 +77,68 @@ export function JitsiMeetingRoom({
     jitsiApi.addEventListener('videoConferenceJoined', (data) => {
       const conference = data as { roomName: string; id: string; displayName: string };
       console.log('[Jitsi] Joined conference:', conference);
+      meetingStartTimeRef.current = new Date();
     });
 
     jitsiApi.addEventListener('videoConferenceLeft', () => {
       console.log('[Jitsi] Left conference');
+      // Calculate meeting duration
+      const duration = meetingStartTimeRef.current
+        ? Math.round((Date.now() - meetingStartTimeRef.current.getTime()) / 1000)
+        : 0;
+
+      // Trigger meeting end callback with transcript
+      if (transcriptRef.current.length > 0 || onMeetingEnd) {
+        onMeetingEnd?.({
+          transcript: transcriptRef.current,
+          duration,
+        });
+      }
+    });
+
+    // Transcription events (from Jitsi transcription or subtitles)
+    jitsiApi.addEventListener('transcriptionChunkReceived', (data) => {
+      const chunk = data as {
+        participant?: { name?: string; id?: string };
+        text?: string;
+        final?: boolean;
+      };
+
+      if (chunk.text && chunk.final !== false) {
+        const entry: TranscriptEntry = {
+          speaker: chunk.participant?.name || 'Desconocido',
+          text: chunk.text,
+          timestamp: new Date().toISOString(),
+        };
+        transcriptRef.current.push(entry);
+        console.log('[Jitsi] Transcript chunk:', entry);
+        onTranscriptUpdate?.(transcriptRef.current);
+      }
+    });
+
+    // Also listen for subtitles/captions (alternative transcription source)
+    jitsiApi.addEventListener('subtitlesReceived', (data) => {
+      const subtitle = data as {
+        participantName?: string;
+        text?: string;
+      };
+
+      if (subtitle.text) {
+        const entry: TranscriptEntry = {
+          speaker: subtitle.participantName || 'Desconocido',
+          text: subtitle.text,
+          timestamp: new Date().toISOString(),
+        };
+        transcriptRef.current.push(entry);
+        onTranscriptUpdate?.(transcriptRef.current);
+      }
     });
 
     jitsiApi.addEventListener('readyToClose', () => {
       console.log('[Jitsi] Ready to close');
       onReadyToClose?.();
     });
-  }, [onParticipantJoined, onParticipantLeft, onRecordingStatusChanged, onReadyToClose]);
+  }, [onParticipantJoined, onParticipantLeft, onRecordingStatusChanged, onReadyToClose, onTranscriptUpdate, onMeetingEnd]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -116,9 +179,12 @@ export function JitsiMeetingRoom({
           disableDeepLinking: true,
           prejoinPageEnabled: false,
 
-          // Branding
+          // Branding - Unity Meet
           defaultLogoUrl: '',
           hiddenPremeetingButtons: [],
+
+          // IMPORTANT: Custom invite URL pointing to meet.byunity.net
+          inviteDomain: 'meet.byunity.net/room',
 
           // Features
           enableClosePage: false,
@@ -131,6 +197,14 @@ export function JitsiMeetingRoom({
             enabled: true,
             format: 'webm',
           },
+
+          // Transcription / Closed Captions
+          transcription: {
+            enabled: true,
+            useAppLanguage: true,
+          },
+          transcribingEnabled: true,
+          autoCaptionOnRecord: true,
 
           // Quality
           resolution: 720,

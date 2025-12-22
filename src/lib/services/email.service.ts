@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import { generateICS, generateICSFilename, createMeetingICSEvent } from '@/lib/utils/ics';
+import type { MeetingSummary, ActionItem, MeetingInsights } from '@/lib/services/ai.service';
 
 // Lazy initialization of Resend client
 let resendClient: Resend | null = null;
@@ -362,4 +363,331 @@ export async function sendPublicMeetingLink(params: {
     console.error('[Email] Error sending public link:', error);
     throw error;
   }
+}
+
+/**
+ * Send AI-generated meeting summary to all participants
+ */
+export async function sendMeetingSummaryEmail(params: {
+  recipients: Array<{ email: string; name: string }>;
+  meeting: {
+    id: string;
+    title: string;
+    roomId: string;
+    startedAt: Date;
+    endedAt: Date;
+    duration: number; // in seconds
+  };
+  host: {
+    name: string | null;
+    email: string;
+  };
+  summary: MeetingSummary;
+  actionItems: ActionItem[];
+  insights: MeetingInsights;
+}) {
+  const { recipients, meeting, host, summary, actionItems, insights } = params;
+  const recordingUrl = `${APP_URL}/dashboard/meetings/${meeting.id}`;
+
+  // Format dates
+  const dateFormatter = new Intl.DateTimeFormat('es-ES', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+  const timeFormatter = new Intl.DateTimeFormat('es-ES', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  const formattedDate = dateFormatter.format(meeting.startedAt);
+  const formattedStartTime = timeFormatter.format(meeting.startedAt);
+  const formattedEndTime = timeFormatter.format(meeting.endedAt);
+  const durationMinutes = Math.round(meeting.duration / 60);
+  const durationText = durationMinutes >= 60
+    ? `${Math.floor(durationMinutes / 60)}h ${durationMinutes % 60}min`.replace(' 0min', '')
+    : `${durationMinutes} minutos`;
+
+  // Build action items HTML
+  const actionItemsHtml = actionItems.length > 0
+    ? `
+      <div style="margin-top: 24px;">
+        <h3 style="margin: 0 0 16px; color: #18181b; font-size: 16px; font-weight: 600;">
+          📋 Acciones a Seguir (${actionItems.length})
+        </h3>
+        <div style="background: #fef3c7; border-radius: 12px; padding: 16px;">
+          ${actionItems.map((item, idx) => `
+            <div style="display: flex; gap: 12px; ${idx > 0 ? 'margin-top: 12px; padding-top: 12px; border-top: 1px solid #fcd34d;' : ''}">
+              <span style="flex-shrink: 0; width: 24px; height: 24px; background: ${
+                item.priority === 'high' ? '#ef4444' : item.priority === 'medium' ? '#f59e0b' : '#22c55e'
+              }; color: white; border-radius: 50%; text-align: center; line-height: 24px; font-size: 12px; font-weight: 600;">
+                ${idx + 1}
+              </span>
+              <div>
+                <p style="margin: 0 0 4px; color: #18181b; font-size: 14px; font-weight: 500;">${item.task}</p>
+                ${item.assignee ? `<p style="margin: 0; color: #71717a; font-size: 12px;">👤 ${item.assignee}${item.dueDate ? ` • 📅 ${item.dueDate}` : ''}</p>` : ''}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `
+    : '';
+
+  // Build key points HTML
+  const keyPointsHtml = summary.keyPoints.length > 0
+    ? `
+      <div style="margin-top: 24px;">
+        <h3 style="margin: 0 0 16px; color: #18181b; font-size: 16px; font-weight: 600;">
+          ✨ Puntos Clave
+        </h3>
+        <ul style="margin: 0; padding-left: 20px; color: #52525b;">
+          ${summary.keyPoints.map(point => `<li style="margin-bottom: 8px;">${point}</li>`).join('')}
+        </ul>
+      </div>
+    `
+    : '';
+
+  // Build topics HTML
+  const topicsHtml = insights.topics.length > 0
+    ? `
+      <div style="margin-top: 24px;">
+        <h3 style="margin: 0 0 16px; color: #18181b; font-size: 16px; font-weight: 600;">
+          📊 Temas Discutidos
+        </h3>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+          ${insights.topics.map(topic => `
+            <span style="background: #f3e8ff; color: #7c3aed; padding: 6px 12px; border-radius: 20px; font-size: 13px;">
+              ${topic.name} (${topic.percentage}%)
+            </span>
+          `).join('')}
+        </div>
+      </div>
+    `
+    : '';
+
+  // Build participation HTML
+  const participationHtml = insights.participationBalance.length > 0
+    ? `
+      <div style="margin-top: 24px;">
+        <h3 style="margin: 0 0 16px; color: #18181b; font-size: 16px; font-weight: 600;">
+          👥 Participación
+        </h3>
+        <div style="background: #f0fdf4; border-radius: 12px; padding: 16px;">
+          ${insights.participationBalance.map(p => `
+            <div style="margin-bottom: 8px;">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                <span style="color: #18181b; font-size: 13px;">${p.participant}</span>
+                <span style="color: #71717a; font-size: 12px;">${p.speakingTime} (${p.percentage}%)</span>
+              </div>
+              <div style="background: #dcfce7; border-radius: 4px; height: 8px; overflow: hidden;">
+                <div style="background: #22c55e; height: 100%; width: ${p.percentage}%;"></div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `
+    : '';
+
+  // Build suggestions HTML
+  const suggestionsHtml = insights.suggestions.length > 0
+    ? `
+      <div style="margin-top: 24px;">
+        <h3 style="margin: 0 0 16px; color: #18181b; font-size: 16px; font-weight: 600;">
+          💡 Sugerencias para Mejorar
+        </h3>
+        <div style="background: #eff6ff; border-radius: 12px; padding: 16px;">
+          <ul style="margin: 0; padding-left: 20px; color: #1e40af;">
+            ${insights.suggestions.map(s => `<li style="margin-bottom: 8px;">${s}</li>`).join('')}
+          </ul>
+        </div>
+      </div>
+    `
+    : '';
+
+  // Sentiment badge
+  const sentimentBadge = {
+    positive: { bg: '#dcfce7', color: '#166534', text: '😊 Positivo' },
+    neutral: { bg: '#f3f4f6', color: '#374151', text: '😐 Neutral' },
+    negative: { bg: '#fee2e2', color: '#991b1b', text: '😟 Negativo' },
+  }[insights.sentiment] || { bg: '#f3f4f6', color: '#374151', text: '😐 Neutral' };
+
+  // Email HTML content
+  const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Resumen de reunión</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f4f4f5;">
+  <div style="max-width: 640px; margin: 0 auto; padding: 40px 20px;">
+    <!-- Header -->
+    <div style="text-align: center; margin-bottom: 32px;">
+      <div style="display: inline-block; width: 56px; height: 56px; background: linear-gradient(135deg, #8B5CF6, #6366F1); border-radius: 16px; margin-bottom: 16px;">
+        <span style="display: block; line-height: 56px; font-size: 28px;">🤖</span>
+      </div>
+      <h1 style="margin: 0 0 8px; color: #18181b; font-size: 28px; font-weight: 700;">Resumen de Reunión</h1>
+      <p style="margin: 0; color: #71717a; font-size: 14px;">Generado automáticamente por Unity Meet AI</p>
+    </div>
+
+    <!-- Main Card -->
+    <div style="background: white; border-radius: 20px; padding: 32px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+
+      <!-- Meeting Info -->
+      <div style="background: linear-gradient(135deg, #f5f3ff, #ede9fe); border-radius: 16px; padding: 24px; margin-bottom: 24px;">
+        <h2 style="margin: 0 0 16px; color: #5b21b6; font-size: 22px; font-weight: 600;">
+          ${summary.title || meeting.title}
+        </h2>
+
+        <div style="display: flex; flex-wrap: wrap; gap: 16px; color: #6b7280; font-size: 14px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span>📅</span> ${formattedDate}
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span>🕐</span> ${formattedStartTime} - ${formattedEndTime}
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span>⏱️</span> ${durationText}
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span>👤</span> ${host.name || host.email}
+          </div>
+        </div>
+
+        <!-- Sentiment Badge -->
+        <div style="margin-top: 16px;">
+          <span style="display: inline-block; background: ${sentimentBadge.bg}; color: ${sentimentBadge.color}; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 500;">
+            ${sentimentBadge.text}
+          </span>
+        </div>
+      </div>
+
+      <!-- Summary -->
+      <div>
+        <h3 style="margin: 0 0 12px; color: #18181b; font-size: 16px; font-weight: 600;">
+          📝 Resumen Ejecutivo
+        </h3>
+        <p style="margin: 0; color: #52525b; font-size: 15px; line-height: 1.7;">
+          ${summary.summary}
+        </p>
+      </div>
+
+      <!-- Key Points -->
+      ${keyPointsHtml}
+
+      <!-- Action Items -->
+      ${actionItemsHtml}
+
+      <!-- Topics -->
+      ${topicsHtml}
+
+      <!-- Participation -->
+      ${participationHtml}
+
+      <!-- Suggestions -->
+      ${suggestionsHtml}
+
+      <!-- CTA Button -->
+      <div style="margin-top: 32px; text-align: center;">
+        <a href="${recordingUrl}"
+           style="display: inline-block; background: linear-gradient(135deg, #8B5CF6, #6366F1); color: white; text-decoration: none; padding: 14px 28px; border-radius: 12px; font-weight: 600; font-size: 15px;">
+          Ver Detalles de la Reunión
+        </a>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="text-align: center; margin-top: 32px; color: #a1a1aa; font-size: 12px;">
+      <p style="margin: 0 0 8px;">
+        Este resumen fue generado automáticamente usando inteligencia artificial.
+      </p>
+      <p style="margin: 0;">
+        Powered by Unity Meet AI - Unity Financial Network
+      </p>
+    </div>
+  </div>
+</body>
+</html>
+  `;
+
+  // Plain text version
+  const textContent = `
+RESUMEN DE REUNIÓN - Unity Meet AI
+=====================================
+
+📌 ${summary.title || meeting.title}
+
+📅 ${formattedDate}
+🕐 ${formattedStartTime} - ${formattedEndTime}
+⏱️ Duración: ${durationText}
+👤 Organizador: ${host.name || host.email}
+😊 Tono: ${sentimentBadge.text}
+
+---
+
+📝 RESUMEN EJECUTIVO
+${summary.summary}
+
+${summary.keyPoints.length > 0 ? `
+✨ PUNTOS CLAVE
+${summary.keyPoints.map((p, i) => `${i + 1}. ${p}`).join('\n')}
+` : ''}
+${actionItems.length > 0 ? `
+📋 ACCIONES A SEGUIR
+${actionItems.map((a, i) => `${i + 1}. ${a.task}${a.assignee ? ` (${a.assignee})` : ''}${a.dueDate ? ` - ${a.dueDate}` : ''} [${a.priority.toUpperCase()}]`).join('\n')}
+` : ''}
+${insights.topics.length > 0 ? `
+📊 TEMAS DISCUTIDOS
+${insights.topics.map(t => `• ${t.name}: ${t.percentage}%`).join('\n')}
+` : ''}
+${insights.suggestions.length > 0 ? `
+💡 SUGERENCIAS
+${insights.suggestions.map(s => `• ${s}`).join('\n')}
+` : ''}
+---
+Ver detalles: ${recordingUrl}
+
+Powered by Unity Meet AI - Unity Financial Network
+  `.trim();
+
+  const results: Array<{ email: string; success: boolean; messageId?: string; error?: string }> = [];
+
+  // Send to all recipients
+  for (const recipient of recipients) {
+    try {
+      const result = await getResendClient().emails.send({
+        from: FROM_EMAIL,
+        to: [recipient.email],
+        subject: `📊 Resumen AI: ${summary.title || meeting.title}`,
+        html: htmlContent.replace('Hola', `Hola ${recipient.name}`),
+        text: textContent,
+      });
+
+      results.push({
+        email: recipient.email,
+        success: true,
+        messageId: result.data?.id,
+      });
+
+      console.log(`[Email] AI Summary sent to ${recipient.email}`);
+    } catch (error) {
+      console.error(`[Email] Error sending AI summary to ${recipient.email}:`, error);
+      results.push({
+        email: recipient.email,
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  return {
+    success: results.every(r => r.success),
+    results,
+    sentCount: results.filter(r => r.success).length,
+    failedCount: results.filter(r => !r.success).length,
+  };
 }
