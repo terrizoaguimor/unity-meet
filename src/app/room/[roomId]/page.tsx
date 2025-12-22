@@ -7,8 +7,10 @@ import { JitsiMeetingRoom, type TranscriptEntry } from '@/components/room/JitsiM
 
 interface PreJoinState {
   userName: string;
+  password: string;
   isLoading: boolean;
   error: string | null;
+  requiresPassword: boolean;
 }
 
 interface MeetingInfo {
@@ -38,12 +40,14 @@ export default function RoomPage() {
   const autoJoinAttempted = useRef(false);
   const [preJoin, setPreJoin] = useState<PreJoinState>({
     userName: '',
+    password: '',
     isLoading: false,
     error: null,
+    requiresPassword: false,
   });
 
   // Función para unirse a la sala
-  const joinRoom = useCallback(async (userName: string) => {
+  const joinRoom = useCallback(async (userName: string, password?: string) => {
     if (!userName.trim()) {
       setPreJoin(prev => ({ ...prev, error: 'Por favor ingresa tu nombre' }));
       return;
@@ -59,12 +63,23 @@ export default function RoomPage() {
         body: JSON.stringify({
           roomName: roomId,
           userName: userName,
+          password: password || undefined,
         }),
       });
 
       const data = await response.json();
 
       if (!data.success) {
+        // Check if password is required
+        if (data.requiresPassword) {
+          setPreJoin(prev => ({
+            ...prev,
+            isLoading: false,
+            error: data.error,
+            requiresPassword: true,
+          }));
+          return;
+        }
         throw new Error(data.error || 'Failed to get token');
       }
 
@@ -87,8 +102,8 @@ export default function RoomPage() {
   // Manejar unirse a la sala (desde formulario)
   const handleJoin = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    await joinRoom(preJoin.userName);
-  }, [preJoin.userName, joinRoom]);
+    await joinRoom(preJoin.userName, preJoin.password || undefined);
+  }, [preJoin.userName, preJoin.password, joinRoom]);
 
   // Auto-join para usuarios autenticados
   useEffect(() => {
@@ -249,9 +264,36 @@ export default function RoomPage() {
                   placeholder="Ingresa tu nombre"
                   className="w-full px-4 py-3 bg-slate-700/50 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all"
                   disabled={preJoin.isLoading}
-                  autoFocus
+                  autoFocus={!preJoin.requiresPassword}
                 />
               </div>
+
+              {/* Password input - shown when required */}
+              {preJoin.requiresPassword && (
+                <div>
+                  <label
+                    htmlFor="password"
+                    className="block text-sm font-medium text-white/70 mb-2"
+                  >
+                    Contraseña de la reunión
+                  </label>
+                  <input
+                    type="password"
+                    id="password"
+                    value={preJoin.password}
+                    onChange={(e) =>
+                      setPreJoin(prev => ({ ...prev, password: e.target.value }))
+                    }
+                    placeholder="Ingresa la contraseña"
+                    className="w-full px-4 py-3 bg-slate-700/50 border border-amber-500/30 rounded-xl text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all"
+                    disabled={preJoin.isLoading}
+                    autoFocus
+                  />
+                  <p className="mt-2 text-xs text-amber-400/70">
+                    Esta reunión está protegida con contraseña
+                  </p>
+                </div>
+              )}
 
               {/* Error message */}
               {preJoin.error && (
@@ -263,7 +305,7 @@ export default function RoomPage() {
               {/* Join button */}
               <button
                 type="submit"
-                disabled={preJoin.isLoading || !preJoin.userName.trim()}
+                disabled={preJoin.isLoading || !preJoin.userName.trim() || (preJoin.requiresPassword && !preJoin.password.trim())}
                 className="w-full py-4 px-6 bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-500 hover:to-purple-400 disabled:from-slate-600 disabled:to-slate-600 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all duration-200 flex items-center justify-center gap-3 shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40"
               >
                 {preJoin.isLoading ? (

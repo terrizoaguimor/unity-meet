@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     const body = await request.json();
-    const { roomName, userName, email, avatar } = body;
+    const { roomName, userName, email, avatar, password: providedPassword } = body;
 
     if (!roomName || !userName) {
       return NextResponse.json(
@@ -43,6 +43,30 @@ export async function POST(request: NextRequest) {
           return NextResponse.json(
             { success: false, error: 'Esta es una reunión privada. Debes iniciar sesión para unirte.' },
             { status: 403 }
+          );
+        }
+      }
+
+      // Check password if meeting has one (and user is not the host)
+      if (meeting.password && !isModerator) {
+        if (!providedPassword) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: 'Esta reunión requiere contraseña',
+              requiresPassword: true,
+            },
+            { status: 401 }
+          );
+        }
+        if (providedPassword !== meeting.password) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: 'Contraseña incorrecta',
+              requiresPassword: true,
+            },
+            { status: 401 }
           );
         }
       }

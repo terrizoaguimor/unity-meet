@@ -65,6 +65,10 @@ function CreateRoomContent() {
     registrationRequired: false,
   });
 
+  // Invitees for scheduled meetings
+  const [invitees, setInvitees] = useState<string>('');
+  const [inviteMessage, setInviteMessage] = useState<string>('');
+
   // Set initial meeting type from URL params
   useEffect(() => {
     const typeParam = searchParams.get('type');
@@ -110,6 +114,12 @@ function CreateRoomContent() {
         scheduledEnd = new Date(scheduledStart.getTime() + duration * 60 * 1000);
       }
 
+      // Parse invitees (comma or newline separated emails)
+      const inviteeEmails = invitees
+        .split(/[,\n]/)
+        .map(email => email.trim())
+        .filter(email => email && email.includes('@'));
+
       const response = await fetch('/api/meetings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -125,6 +135,8 @@ function CreateRoomContent() {
           isPublic,
           password: !isPublic ? password : undefined,
           webinarSettings: meetingType === 'webinar' ? webinarSettings : undefined,
+          invitees: inviteeEmails,
+          inviteMessage: inviteMessage || undefined,
         }),
       });
 
@@ -337,6 +349,39 @@ function CreateRoomContent() {
                         <option value={120}>2 horas</option>
                         <option value={180}>3 horas</option>
                       </select>
+                    </div>
+                  </div>
+                )}
+
+                {/* Invitees for scheduled meetings and webinars */}
+                {(meetingType === 'scheduled' || meetingType === 'webinar') && (
+                  <div className="mb-6">
+                    <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+                      Invitar participantes (opcional)
+                    </label>
+                    <textarea
+                      value={invitees}
+                      onChange={(e) => setInvitees(e.target.value)}
+                      placeholder="Ingresa los correos de los invitados separados por coma o en líneas separadas&#10;ejemplo@correo.com, otro@correo.com"
+                      rows={3}
+                      className="w-full px-4 py-3 rounded-xl border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white placeholder-neutral-500 focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none font-mono text-sm"
+                    />
+                    <p className="mt-1.5 text-xs text-neutral-500">
+                      Los invitados recibirán un correo con el enlace y archivo .ics para agregar al calendario
+                    </p>
+
+                    {/* Optional message */}
+                    <div className="mt-4">
+                      <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+                        Mensaje personalizado (opcional)
+                      </label>
+                      <input
+                        type="text"
+                        value={inviteMessage}
+                        onChange={(e) => setInviteMessage(e.target.value)}
+                        placeholder="Ej: ¡Los espero puntuales!"
+                        className="w-full px-4 py-3 rounded-xl border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white placeholder-neutral-500 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      />
                     </div>
                   </div>
                 )}

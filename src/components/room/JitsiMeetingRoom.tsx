@@ -215,20 +215,26 @@ export function JitsiMeetingRoom({
             },
           },
 
-          // Toolbox
+          // Toolbox - all available features
           toolbarButtons: [
             'camera',
             'chat',
             'closedcaptions',
             'desktop',
             'download',
+            'embedmeeting',
+            'etherpad',
             'filmstrip',
             'fullscreen',
             'hangup',
             'help',
             'highlight',
             'invite',
+            'linktosalesforce',
+            'livestreaming',
             'microphone',
+            'mute-everyone',
+            'mute-video-everyone',
             'noisesuppression',
             'participants-pane',
             'profile',
@@ -246,6 +252,16 @@ export function JitsiMeetingRoom({
             'videoquality',
             'whiteboard',
           ],
+
+          // Polls configuration
+          polls: {
+            enabled: true,
+          },
+
+          // Reactions
+          reactions: {
+            enabled: true,
+          },
 
           // Disable watermark
           disableInviteFunctions: false,
