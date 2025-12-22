@@ -152,7 +152,7 @@ telnyx-*.json
 *.db
 
 # Recordings (may contain sensitive meeting content)
-recordings/
+/recordings/
 *.webm
 *.mp4
 *.mkv
