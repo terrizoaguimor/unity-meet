@@ -71,10 +71,25 @@ export async function GET(
       );
     }
 
+    // Extract the S3 key from the URL
+    // URL format: https://bucket.region.digitaloceanspaces.com/path/to/file
+    // or: https://region.digitaloceanspaces.com/bucket/path/to/file
+    const url = new URL(recording.url);
+    let storageKey = url.pathname;
+
+    // Remove leading slash and bucket name if present in path
+    if (storageKey.startsWith('/')) {
+      storageKey = storageKey.slice(1);
+    }
+    const bucket = process.env.DO_SPACES_BUCKET || 'meet-by-unity';
+    if (storageKey.startsWith(`${bucket}/`)) {
+      storageKey = storageKey.slice(bucket.length + 1);
+    }
+
     // Generate signed URL (valid for 1 hour)
     const command = new GetObjectCommand({
-      Bucket: process.env.DO_SPACES_BUCKET,
-      Key: recording.storageKey,
+      Bucket: bucket,
+      Key: storageKey,
     });
 
     const signedUrl = await getSignedUrl(s3Client, command, {
