@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { JitsiMeetingRoom } from '@/components/room/JitsiMeetingRoom';
 
@@ -8,6 +8,13 @@ interface PreJoinState {
   userName: string;
   isLoading: boolean;
   error: string | null;
+}
+
+interface MeetingInfo {
+  id: string;
+  title: string;
+  type: string;
+  isHost: boolean;
 }
 
 /**
@@ -22,6 +29,8 @@ export default function RoomPage() {
   const [hasJoined, setHasJoined] = useState(false);
   const [jwt, setJwt] = useState<string | null>(null);
   const [jitsiDomain, setJitsiDomain] = useState<string | null>(null);
+  const [meetingInfo, setMeetingInfo] = useState<MeetingInfo | null>(null);
+  const hasEndedMeeting = useRef(false);
   const [preJoin, setPreJoin] = useState<PreJoinState>({
     userName: '',
     isLoading: false,
@@ -58,6 +67,9 @@ export default function RoomPage() {
 
       setJwt(data.token);
       setJitsiDomain(data.jitsiDomain);
+      if (data.meeting) {
+        setMeetingInfo(data.meeting);
+      }
       setHasJoined(true);
     } catch (err) {
       console.error('[RoomPage] Failed to join:', err);
@@ -70,9 +82,23 @@ export default function RoomPage() {
   }, [preJoin.userName, roomId]);
 
   // Manejar salir de la sala
-  const handleLeave = useCallback(() => {
+  const handleLeave = useCallback(async () => {
+    // End meeting if user is host and hasn't ended already
+    if (meetingInfo?.isHost && meetingInfo?.id && !hasEndedMeeting.current) {
+      hasEndedMeeting.current = true;
+      try {
+        await fetch(`/api/meetings/${meetingInfo.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'end' }),
+        });
+        console.log('[RoomPage] Meeting ended successfully');
+      } catch (err) {
+        console.error('[RoomPage] Failed to end meeting:', err);
+      }
+    }
     router.push('/dashboard');
-  }, [router]);
+  }, [meetingInfo, router]);
 
   // Pantalla de pre-join
   if (!hasJoined || !jwt) {
