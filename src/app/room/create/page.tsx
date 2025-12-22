@@ -46,7 +46,7 @@ function CreateRoomContent() {
   // Meeting options
   const [meetingType, setMeetingType] = useState<MeetingType>('instant');
   const [enableRecording, setEnableRecording] = useState(false);
-  const [enableWaitingRoom, setEnableWaitingRoom] = useState(false);
+  const [enableWaitingRoom, setEnableWaitingRoom] = useState(true); // Enabled by default for security
   const [maxParticipants, setMaxParticipants] = useState(50);
   const [isPublic, setIsPublic] = useState(true);
   const [hostPassword, setHostPassword] = useState('');
