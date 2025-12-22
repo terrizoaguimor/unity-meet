@@ -73,101 +73,257 @@ export async function sendMeetingInvitation(params: MeetingInvitationParams) {
   const icsContent = generateICS(icsEvent);
   const icsFilename = generateICSFilename(meeting.title);
 
-  // Email HTML content
+  // Format time separately
+  const timeFormatter = new Intl.DateTimeFormat('es-ES', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const dayFormatter = new Intl.DateTimeFormat('es-ES', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+  const formattedTime = timeFormatter.format(meeting.scheduledStart);
+  const formattedDay = dayFormatter.format(meeting.scheduledStart);
+  // Capitalize first letter
+  const capitalizedDay = formattedDay.charAt(0).toUpperCase() + formattedDay.slice(1);
+
+  // Email HTML content - Table-based for better email client compatibility
   const htmlContent = `
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Invitación a reunión</title>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>Invitación a reunión - Unity Meet</title>
+  <!--[if mso]>
+  <style type="text/css">
+    table {border-collapse: collapse;}
+    .button-td, .button-a {padding: 16px 32px !important;}
+  </style>
+  <![endif]-->
 </head>
-<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f4f4f5;">
-  <div style="max-width: 600px; margin: 0 auto; padding: 40px 20px;">
-    <!-- Header -->
-    <div style="text-align: center; margin-bottom: 32px;">
-      <div style="display: inline-block; width: 48px; height: 48px; background: linear-gradient(135deg, #8B5CF6, #6366F1); border-radius: 12px; margin-bottom: 16px;">
-        <span style="display: block; line-height: 48px; color: white; font-size: 24px;">🎥</span>
-      </div>
-      <h1 style="margin: 0; color: #18181b; font-size: 24px; font-weight: 600;">Unity Meet</h1>
-    </div>
+<body style="margin: 0; padding: 0; background-color: #0f0f23; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
 
-    <!-- Main Card -->
-    <div style="background: white; border-radius: 16px; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-      <p style="margin: 0 0 24px; color: #52525b; font-size: 16px;">
-        Hola <strong style="color: #18181b;">${recipientName}</strong>,
-      </p>
-
-      <p style="margin: 0 0 24px; color: #52525b; font-size: 16px;">
-        <strong style="color: #18181b;">${host.name || 'Un usuario'}</strong> te ha invitado a ${meeting.type === 'WEBINAR' ? 'un webinar' : 'una reunión'}:
-      </p>
-
-      <!-- Meeting Details Box -->
-      <div style="background: #faf5ff; border-radius: 12px; padding: 24px; margin-bottom: 24px; border-left: 4px solid #8B5CF6;">
-        <h2 style="margin: 0 0 16px; color: #18181b; font-size: 20px; font-weight: 600;">
-          ${meeting.title}
-        </h2>
-
-        <div style="display: flex; flex-direction: column; gap: 12px;">
-          <div style="display: flex; align-items: center; gap: 12px;">
-            <span style="font-size: 18px;">📅</span>
-            <span style="color: #52525b;">${formattedDate}</span>
-          </div>
-          <div style="display: flex; align-items: center; gap: 12px;">
-            <span style="font-size: 18px;">⏱️</span>
-            <span style="color: #52525b;">Duración: ${durationText}</span>
-          </div>
-          <div style="display: flex; align-items: center; gap: 12px;">
-            <span style="font-size: 18px;">👤</span>
-            <span style="color: #52525b;">Organizador: ${host.name || host.email}</span>
-          </div>
-        </div>
-
-        ${meeting.description ? `
-        <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #e4e4e7;">
-          <p style="margin: 0; color: #71717a; font-size: 14px;">${meeting.description}</p>
-        </div>
-        ` : ''}
-      </div>
-
-      ${message ? `
-      <!-- Personal Message -->
-      <div style="background: #f4f4f5; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
-        <p style="margin: 0; color: #52525b; font-size: 14px; font-style: italic;">"${message}"</p>
-      </div>
-      ` : ''}
-
-      <!-- Join Button -->
-      <div style="text-align: center; margin-bottom: 24px;">
-        <a href="${joinUrl}"
-           style="display: inline-block; background: linear-gradient(135deg, #8B5CF6, #6366F1); color: white; text-decoration: none; padding: 16px 32px; border-radius: 12px; font-weight: 600; font-size: 16px;">
-          Unirse a la ${meeting.type === 'WEBINAR' ? 'webinar' : 'reunión'}
-        </a>
-      </div>
-
-      <!-- Link fallback -->
-      <p style="margin: 0; color: #a1a1aa; font-size: 12px; text-align: center; word-break: break-all;">
-        O copia este enlace: <a href="${joinUrl}" style="color: #8B5CF6;">${joinUrl}</a>
-      </p>
-    </div>
-
-    <!-- Calendar Note -->
-    <div style="text-align: center; margin-top: 24px; padding: 16px;">
-      <p style="margin: 0 0 8px; color: #71717a; font-size: 14px;">
-        📎 Hemos adjuntado un archivo .ics para agregar este evento a tu calendario
-      </p>
-    </div>
-
-    <!-- Footer -->
-    <div style="text-align: center; margin-top: 32px; padding-top: 24px; border-top: 1px solid #e4e4e7;">
-      <p style="margin: 0 0 8px; color: #a1a1aa; font-size: 12px;">
-        Powered by Unity Meet - Unity Financial Network
-      </p>
-      <p style="margin: 0; color: #a1a1aa; font-size: 12px;">
-        Este correo fue enviado a ${to}
-      </p>
-    </div>
+  <!-- Preview Text -->
+  <div style="display: none; max-height: 0; overflow: hidden;">
+    ${host.name || 'Alguien'} te invita a: ${meeting.title} - ${capitalizedDay} a las ${formattedTime}
   </div>
+
+  <!-- Email Container -->
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #0f0f23;">
+    <tr>
+      <td style="padding: 40px 20px;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin: 0 auto; max-width: 600px;">
+
+          <!-- Logo Header -->
+          <tr>
+            <td style="text-align: center; padding-bottom: 32px;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
+                <tr>
+                  <td style="background: linear-gradient(135deg, #8B5CF6 0%, #F97316 100%); border-radius: 16px; padding: 16px 20px;">
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                      <tr>
+                        <td style="vertical-align: middle;">
+                          <div style="width: 32px; height: 32px; background-color: rgba(255,255,255,0.2); border-radius: 8px; text-align: center; line-height: 32px;">
+                            <span style="color: white; font-size: 18px; font-weight: bold;">U</span>
+                          </div>
+                        </td>
+                        <td style="vertical-align: middle; padding-left: 12px;">
+                          <span style="color: white; font-size: 22px; font-weight: 700; letter-spacing: -0.5px;">Unity Meet</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Main Card -->
+          <tr>
+            <td>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #1a1a2e; border-radius: 24px; overflow: hidden;">
+
+                <!-- Header Banner -->
+                <tr>
+                  <td style="background: linear-gradient(135deg, #312e81 0%, #581c87 100%); padding: 32px 40px;">
+                    <p style="margin: 0 0 8px 0; color: rgba(255,255,255,0.7); font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">
+                      ${meeting.type === 'WEBINAR' ? 'Invitación a Webinar' : 'Invitación a Reunión'}
+                    </p>
+                    <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700; line-height: 1.3;">
+                      ${meeting.title}
+                    </h1>
+                  </td>
+                </tr>
+
+                <!-- Content -->
+                <tr>
+                  <td style="padding: 40px;">
+
+                    <!-- Greeting -->
+                    <p style="margin: 0 0 24px 0; color: #e2e8f0; font-size: 16px; line-height: 1.6;">
+                      Hola <strong style="color: #ffffff;">${recipientName}</strong>,
+                    </p>
+                    <p style="margin: 0 0 32px 0; color: #94a3b8; font-size: 16px; line-height: 1.6;">
+                      <strong style="color: #c4b5fd;">${host.name || 'Un organizador'}</strong> te ha invitado a participar en esta ${meeting.type === 'WEBINAR' ? 'sesión' : 'reunión'}.
+                    </p>
+
+                    <!-- Meeting Details Card -->
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #252542; border-radius: 16px; margin-bottom: 24px;">
+                      <tr>
+                        <td style="padding: 24px;">
+
+                          <!-- Date & Time Row -->
+                          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 16px;">
+                            <tr>
+                              <td width="50%" style="padding-right: 12px;">
+                                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #1e1e38; border-radius: 12px;">
+                                  <tr>
+                                    <td style="padding: 16px;">
+                                      <p style="margin: 0 0 4px 0; color: #8B5CF6; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Fecha</p>
+                                      <p style="margin: 0; color: #ffffff; font-size: 15px; font-weight: 600;">${capitalizedDay}</p>
+                                    </td>
+                                  </tr>
+                                </table>
+                              </td>
+                              <td width="50%" style="padding-left: 12px;">
+                                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #1e1e38; border-radius: 12px;">
+                                  <tr>
+                                    <td style="padding: 16px;">
+                                      <p style="margin: 0 0 4px 0; color: #F97316; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Hora</p>
+                                      <p style="margin: 0; color: #ffffff; font-size: 15px; font-weight: 600;">${formattedTime}</p>
+                                    </td>
+                                  </tr>
+                                </table>
+                              </td>
+                            </tr>
+                          </table>
+
+                          <!-- Duration & Host Row -->
+                          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                            <tr>
+                              <td width="50%" style="padding-right: 12px;">
+                                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #1e1e38; border-radius: 12px;">
+                                  <tr>
+                                    <td style="padding: 16px;">
+                                      <p style="margin: 0 0 4px 0; color: #22c55e; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Duración</p>
+                                      <p style="margin: 0; color: #ffffff; font-size: 15px; font-weight: 600;">${durationText}</p>
+                                    </td>
+                                  </tr>
+                                </table>
+                              </td>
+                              <td width="50%" style="padding-left: 12px;">
+                                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #1e1e38; border-radius: 12px;">
+                                  <tr>
+                                    <td style="padding: 16px;">
+                                      <p style="margin: 0 0 4px 0; color: #3b82f6; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Organizador</p>
+                                      <p style="margin: 0; color: #ffffff; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${host.name || host.email}</p>
+                                    </td>
+                                  </tr>
+                                </table>
+                              </td>
+                            </tr>
+                          </table>
+
+                        </td>
+                      </tr>
+                    </table>
+
+                    ${meeting.description ? `
+                    <!-- Description -->
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 24px;">
+                      <tr>
+                        <td style="background-color: #252542; border-radius: 12px; padding: 20px; border-left: 4px solid #8B5CF6;">
+                          <p style="margin: 0 0 8px 0; color: #a78bfa; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Descripción</p>
+                          <p style="margin: 0; color: #cbd5e1; font-size: 15px; line-height: 1.6;">${meeting.description}</p>
+                        </td>
+                      </tr>
+                    </table>
+                    ` : ''}
+
+                    ${message ? `
+                    <!-- Personal Message -->
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 32px;">
+                      <tr>
+                        <td style="background-color: #1e293b; border-radius: 12px; padding: 20px;">
+                          <p style="margin: 0 0 8px 0; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;">Mensaje del organizador</p>
+                          <p style="margin: 0; color: #f1f5f9; font-size: 15px; font-style: italic; line-height: 1.6;">"${message}"</p>
+                        </td>
+                      </tr>
+                    </table>
+                    ` : ''}
+
+                    <!-- CTA Button -->
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 24px;">
+                      <tr>
+                        <td style="text-align: center;">
+                          <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
+                            <tr>
+                              <td class="button-td" style="border-radius: 14px; background: linear-gradient(135deg, #8B5CF6 0%, #7c3aed 100%);">
+                                <a href="${joinUrl}" class="button-a" style="display: inline-block; padding: 18px 48px; color: #ffffff; font-size: 16px; font-weight: 700; text-decoration: none; border-radius: 14px;">
+                                  Unirse a la ${meeting.type === 'WEBINAR' ? 'sesión' : 'reunión'}
+                                </a>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <!-- Link -->
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                      <tr>
+                        <td style="text-align: center;">
+                          <p style="margin: 0 0 8px 0; color: #64748b; font-size: 13px;">O copia y pega este enlace:</p>
+                          <p style="margin: 0; word-break: break-all;">
+                            <a href="${joinUrl}" style="color: #a78bfa; font-size: 13px; text-decoration: underline;">${joinUrl}</a>
+                          </p>
+                        </td>
+                      </tr>
+                    </table>
+
+                  </td>
+                </tr>
+
+                <!-- Calendar Attachment Note -->
+                <tr>
+                  <td style="background-color: #252542; padding: 20px 40px; border-top: 1px solid #334155;">
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                      <tr>
+                        <td style="text-align: center;">
+                          <p style="margin: 0; color: #94a3b8; font-size: 14px;">
+                            <span style="color: #22c55e; font-weight: 600;">+</span> Archivo .ics adjunto para agregar a tu calendario
+                          </p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+              </table>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 32px 20px; text-align: center;">
+              <p style="margin: 0 0 8px 0; color: #64748b; font-size: 13px;">
+                <strong style="color: #8B5CF6;">Unity Meet</strong> &bull; Unity Financial Network
+              </p>
+              <p style="margin: 0; color: #475569; font-size: 12px;">
+                Este correo fue enviado a ${to}
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+
 </body>
 </html>
   `;
