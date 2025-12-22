@@ -847,3 +847,259 @@ Powered by Unity Meet AI - Unity Financial Network
     failedCount: results.filter(r => !r.success).length,
   };
 }
+
+/**
+ * Send meeting credentials (passwords) to the host
+ */
+export async function sendMeetingCredentials(params: {
+  to: string;
+  hostName: string;
+  meeting: {
+    id: string;
+    title: string;
+    roomId: string;
+    type: string;
+    scheduledStart?: Date | null;
+  };
+  hostPassword?: string;
+  participantPassword?: string;
+}) {
+  const { to, hostName, meeting, hostPassword, participantPassword } = params;
+  const joinUrl = `${APP_URL}/room/${meeting.roomId}`;
+
+  // Format date if scheduled
+  let dateText = 'Reunión instantánea';
+  if (meeting.scheduledStart) {
+    const dayFormatter = new Intl.DateTimeFormat('es-ES', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    });
+    const timeFormatter = new Intl.DateTimeFormat('es-ES', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    const day = dayFormatter.format(meeting.scheduledStart);
+    const time = timeFormatter.format(meeting.scheduledStart);
+    dateText = `${day.charAt(0).toUpperCase() + day.slice(1)} a las ${time}`;
+  }
+
+  const meetingTypeLabel = meeting.type === 'WEBINAR' ? 'Webinar' : 'Reunión';
+
+  const htmlContent = `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Credenciales de tu ${meetingTypeLabel} - Unity Meet</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #0f0f23; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+
+  <!-- Preview Text -->
+  <div style="display: none; max-height: 0; overflow: hidden;">
+    Credenciales para tu ${meetingTypeLabel}: ${meeting.title}
+  </div>
+
+  <!-- Email Container -->
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #0f0f23;">
+    <tr>
+      <td style="padding: 40px 20px;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin: 0 auto; max-width: 600px;">
+
+          <!-- Logo Header -->
+          <tr>
+            <td style="text-align: center; padding-bottom: 32px;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
+                <tr>
+                  <td style="background: linear-gradient(135deg, #8B5CF6 0%, #F97316 100%); border-radius: 16px; padding: 16px 20px;">
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                      <tr>
+                        <td style="vertical-align: middle;">
+                          <div style="width: 32px; height: 32px; background-color: rgba(255,255,255,0.2); border-radius: 8px; text-align: center; line-height: 32px;">
+                            <span style="color: white; font-size: 18px; font-weight: bold;">U</span>
+                          </div>
+                        </td>
+                        <td style="vertical-align: middle; padding-left: 12px;">
+                          <span style="color: white; font-size: 22px; font-weight: 700; letter-spacing: -0.5px;">Unity Meet</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Main Card -->
+          <tr>
+            <td>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #1a1a2e; border-radius: 24px; overflow: hidden;">
+
+                <!-- Header Banner -->
+                <tr>
+                  <td style="background: linear-gradient(135deg, #065f46 0%, #047857 100%); padding: 32px 40px;">
+                    <p style="margin: 0 0 8px 0; color: rgba(255,255,255,0.7); font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">
+                      Credenciales de ${meetingTypeLabel}
+                    </p>
+                    <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700; line-height: 1.3;">
+                      ${meeting.title}
+                    </h1>
+                  </td>
+                </tr>
+
+                <!-- Content -->
+                <tr>
+                  <td style="padding: 40px;">
+
+                    <!-- Greeting -->
+                    <p style="margin: 0 0 24px 0; color: #e2e8f0; font-size: 16px; line-height: 1.6;">
+                      Hola <strong style="color: #ffffff;">${hostName}</strong>,
+                    </p>
+                    <p style="margin: 0 0 32px 0; color: #94a3b8; font-size: 16px; line-height: 1.6;">
+                      Tu ${meetingTypeLabel.toLowerCase()} ha sido creada exitosamente. Aquí están las credenciales de acceso:
+                    </p>
+
+                    <!-- Meeting Link -->
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #252542; border-radius: 16px; margin-bottom: 24px;">
+                      <tr>
+                        <td style="padding: 24px;">
+                          <p style="margin: 0 0 8px 0; color: #8B5CF6; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Enlace de la Reunión</p>
+                          <p style="margin: 0; color: #ffffff; font-size: 14px; word-break: break-all;">
+                            <a href="${joinUrl}" style="color: #a78bfa; text-decoration: underline;">${joinUrl}</a>
+                          </p>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <!-- Date -->
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #252542; border-radius: 16px; margin-bottom: 24px;">
+                      <tr>
+                        <td style="padding: 24px;">
+                          <p style="margin: 0 0 8px 0; color: #F97316; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Fecha y Hora</p>
+                          <p style="margin: 0; color: #ffffff; font-size: 15px; font-weight: 600;">${dateText}</p>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <!-- Passwords Section -->
+                    ${hostPassword || participantPassword ? `
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #1e293b; border-radius: 16px; margin-bottom: 24px; border: 2px solid #fbbf24;">
+                      <tr>
+                        <td style="padding: 24px;">
+                          <p style="margin: 0 0 16px 0; color: #fbbf24; font-size: 14px; font-weight: 600;">
+                            CREDENCIALES DE ACCESO - GUARDA ESTA INFORMACIÓN
+                          </p>
+
+                          ${hostPassword ? `
+                          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 16px;">
+                            <tr>
+                              <td style="background-color: #252542; border-radius: 12px; padding: 16px;">
+                                <p style="margin: 0 0 4px 0; color: #22c55e; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Contraseña de Organizador</p>
+                                <p style="margin: 0; color: #ffffff; font-size: 20px; font-weight: 700; font-family: monospace; letter-spacing: 2px;">${hostPassword}</p>
+                                <p style="margin: 8px 0 0 0; color: #94a3b8; font-size: 12px;">Usa esta contraseña para entrar como moderador con todos los permisos</p>
+                              </td>
+                            </tr>
+                          </table>
+                          ` : ''}
+
+                          ${participantPassword ? `
+                          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 0;">
+                            <tr>
+                              <td style="background-color: #252542; border-radius: 12px; padding: 16px;">
+                                <p style="margin: 0 0 4px 0; color: #3b82f6; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Contraseña de Participantes</p>
+                                <p style="margin: 0; color: #ffffff; font-size: 20px; font-weight: 700; font-family: monospace; letter-spacing: 2px;">${participantPassword}</p>
+                                <p style="margin: 8px 0 0 0; color: #94a3b8; font-size: 12px;">Comparte esta contraseña con los participantes que quieras invitar</p>
+                              </td>
+                            </tr>
+                          </table>
+                          ` : ''}
+                        </td>
+                      </tr>
+                    </table>
+                    ` : ''}
+
+                    <!-- CTA Button -->
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 24px;">
+                      <tr>
+                        <td style="text-align: center;">
+                          <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
+                            <tr>
+                              <td style="border-radius: 14px; background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);">
+                                <a href="${joinUrl}" style="display: inline-block; padding: 18px 48px; color: #ffffff; font-size: 16px; font-weight: 700; text-decoration: none; border-radius: 14px;">
+                                  Iniciar ${meetingTypeLabel}
+                                </a>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+
+                  </td>
+                </tr>
+
+              </table>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 32px 20px; text-align: center;">
+              <p style="margin: 0 0 8px 0; color: #64748b; font-size: 13px;">
+                <strong style="color: #8B5CF6;">Unity Meet</strong> &bull; Unity Financial Network
+              </p>
+              <p style="margin: 0; color: #475569; font-size: 12px;">
+                Este correo fue enviado a ${to}
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>
+  `;
+
+  // Plain text version
+  const textContent = `
+Hola ${hostName},
+
+Tu ${meetingTypeLabel.toLowerCase()} "${meeting.title}" ha sido creada exitosamente.
+
+ENLACE DE LA REUNIÓN:
+${joinUrl}
+
+FECHA Y HORA:
+${dateText}
+
+${hostPassword || participantPassword ? `
+CREDENCIALES DE ACCESO:
+${hostPassword ? `- Contraseña de Organizador: ${hostPassword} (usa esta para entrar como moderador)` : ''}
+${participantPassword ? `- Contraseña de Participantes: ${participantPassword} (comparte esta con los invitados)` : ''}
+` : ''}
+
+---
+Unity Meet - Unity Financial Network
+  `.trim();
+
+  try {
+    const result = await getResendClient().emails.send({
+      from: FROM_EMAIL,
+      to: [to],
+      subject: `Credenciales: ${meeting.title}`,
+      html: htmlContent,
+      text: textContent,
+    });
+
+    console.log(`[Email] Meeting credentials sent to ${to}`);
+    return { success: true, messageId: result.data?.id };
+  } catch (error) {
+    console.error('[Email] Error sending meeting credentials:', error);
+    throw error;
+  }
+}

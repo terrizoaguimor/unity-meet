@@ -75,7 +75,9 @@ model Meeting {
   enableWaitingRoom Boolean     @default(false)
   enableRecording   Boolean     @default(false)
   isPublic          Boolean     @default(true) // Guest access allowed
-  password          String?     // Optional room password
+  password          String?     // Legacy - use hostPassword/participantPassword
+  hostPassword      String?     // Password for host/moderator access
+  participantPassword String?   // Password for participant access
 
   // Timestamps
   startedAt      DateTime?

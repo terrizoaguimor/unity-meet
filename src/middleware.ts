@@ -24,6 +24,7 @@ export default withAuth(
           pathname.startsWith('/login') ||
           pathname.startsWith('/register') ||
           pathname.startsWith('/api/auth') ||
+          pathname.startsWith('/api/jitsi') || // Jitsi token API for guests
           pathname.startsWith('/room/') // Room joining is public (guests can join)
         ) {
           return true;

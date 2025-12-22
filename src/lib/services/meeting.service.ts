@@ -14,6 +14,8 @@ interface CreateMeetingParams {
   enableRecording?: boolean;
   isPublic?: boolean;
   password?: string;
+  hostPassword?: string;         // Password for host/moderator
+  participantPassword?: string;  // Password for participants
   webinarSettings?: {
     enableQA?: boolean;
     enablePolls?: boolean;
@@ -40,6 +42,8 @@ export async function createMeeting(params: CreateMeetingParams) {
       enableRecording: params.enableRecording ?? false,
       isPublic: params.isPublic ?? true,
       password: params.password,
+      hostPassword: params.hostPassword,
+      participantPassword: params.participantPassword,
       status: params.type === 'INSTANT' ? 'LIVE' : 'PENDING',
       startedAt: params.type === 'INSTANT' ? new Date() : null,
       webinarSettings: params.type === 'WEBINAR' && params.webinarSettings

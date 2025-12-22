@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth/options';
 import { createMeeting, getUserMeetings } from '@/lib/services/meeting.service';
-import { sendMeetingInvitation } from '@/lib/services/email.service';
+import { sendMeetingInvitation, sendMeetingCredentials } from '@/lib/services/email.service';
 import { MeetingType } from '@prisma/client';
 
 export async function POST(request: NextRequest) {
@@ -28,6 +28,8 @@ export async function POST(request: NextRequest) {
       enableRecording,
       isPublic = true,
       password,
+      hostPassword,
+      participantPassword,
       webinarSettings,
       invitees = [],
       inviteMessage,
@@ -45,10 +47,36 @@ export async function POST(request: NextRequest) {
       enableRecording,
       isPublic,
       password,
+      hostPassword,
+      participantPassword,
       webinarSettings,
     });
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+
+    // Send credentials email to host if passwords are set
+    let credentialsEmailSent = false;
+    if ((hostPassword || participantPassword) && session.user.email) {
+      try {
+        await sendMeetingCredentials({
+          to: session.user.email,
+          hostName: session.user.name || 'Organizador',
+          meeting: {
+            id: meeting.id,
+            title: meeting.title,
+            roomId: meeting.roomId,
+            type: meeting.type,
+            scheduledStart: scheduledStart ? new Date(scheduledStart) : null,
+          },
+          hostPassword,
+          participantPassword,
+        });
+        credentialsEmailSent = true;
+        console.log(`[Meetings] Credentials email sent to host: ${session.user.email}`);
+      } catch (error) {
+        console.error('[Meetings] Failed to send credentials email:', error);
+      }
+    }
 
     // Send email invitations for scheduled meetings and webinars
     const emailResults: Array<{ email: string; success: boolean; error?: string }> = [];
@@ -95,6 +123,7 @@ export async function POST(request: NextRequest) {
         ...meeting,
         joinUrl: `${appUrl}/room/${meeting.roomId}`,
       },
+      credentialsEmailSent,
       invitations: emailResults.length > 0 ? {
         sent: emailResults.filter(r => r.success).length,
         failed: emailResults.filter(r => !r.success).length,

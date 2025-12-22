@@ -49,7 +49,8 @@ function CreateRoomContent() {
   const [enableWaitingRoom, setEnableWaitingRoom] = useState(false);
   const [maxParticipants, setMaxParticipants] = useState(50);
   const [isPublic, setIsPublic] = useState(true);
-  const [password, setPassword] = useState('');
+  const [hostPassword, setHostPassword] = useState('');
+  const [participantPassword, setParticipantPassword] = useState('');
 
   // Scheduled meeting options
   const [scheduledDate, setScheduledDate] = useState('');
@@ -133,7 +134,8 @@ function CreateRoomContent() {
           enableWaitingRoom,
           enableRecording,
           isPublic,
-          password: !isPublic ? password : undefined,
+          hostPassword: hostPassword || undefined,
+          participantPassword: participantPassword || undefined,
           webinarSettings: meetingType === 'webinar' ? webinarSettings : undefined,
           invitees: inviteeEmails,
           inviteMessage: inviteMessage || undefined,
@@ -530,23 +532,62 @@ function CreateRoomContent() {
                     </div>
                   </div>
 
-                  {/* Password field for private meetings */}
-                  {!isPublic && (
-                    <div className="p-4 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800">
-                      <Input
-                        label="Contraseña de la reunión"
-                        type="password"
-                        placeholder="Ingresa una contraseña"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        leftIcon={
-                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-                          </svg>
-                        }
-                      />
+                  {/* Dual Password Section */}
+                  <div className="p-4 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800">
+                    <div className="flex items-center gap-2 mb-4">
+                      <svg className="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                      </svg>
+                      <span className="text-sm font-medium text-amber-700 dark:text-amber-300">
+                        Protección con contraseñas (opcional)
+                      </span>
                     </div>
-                  )}
+                    <p className="text-xs text-amber-600/80 dark:text-amber-400/80 mb-4">
+                      Configura contraseñas para controlar el acceso. Recibirás las credenciales por correo.
+                    </p>
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+                          Contraseña de Organizador
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            placeholder="Ej: host123"
+                            value={hostPassword}
+                            onChange={(e) => setHostPassword(e.target.value)}
+                            className="w-full px-4 py-3 rounded-xl border border-green-300 dark:border-green-600 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white placeholder-neutral-500 focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-green-600 font-medium">
+                            Moderador
+                          </span>
+                        </div>
+                        <p className="mt-1.5 text-xs text-neutral-500">
+                          Acceso con permisos completos
+                        </p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+                          Contraseña de Participantes
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            placeholder="Ej: invitado456"
+                            value={participantPassword}
+                            onChange={(e) => setParticipantPassword(e.target.value)}
+                            className="w-full px-4 py-3 rounded-xl border border-blue-300 dark:border-blue-600 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white placeholder-neutral-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-blue-600 font-medium">
+                            Invitado
+                          </span>
+                        </div>
+                        <p className="mt-1.5 text-xs text-neutral-500">
+                          Comparte esta con los invitados
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Error */}

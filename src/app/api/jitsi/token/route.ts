@@ -47,19 +47,41 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Check password if meeting has one (and user is not the host)
-      if (meeting.password && !isModerator) {
+      // Check password requirements
+      // Dual password system: hostPassword for hosts/moderators, participantPassword for participants
+      const hasHostPassword = !!meeting.hostPassword;
+      const hasParticipantPassword = !!meeting.participantPassword;
+      const hasLegacyPassword = !!meeting.password;
+
+      if (hasHostPassword || hasParticipantPassword || hasLegacyPassword) {
         if (!providedPassword) {
           return NextResponse.json(
             {
               success: false,
               error: 'Esta reunión requiere contraseña',
               requiresPassword: true,
+              passwordType: hasHostPassword || hasParticipantPassword ? 'dual' : 'single',
             },
             { status: 401 }
           );
         }
-        if (providedPassword !== meeting.password) {
+
+        // Check if provided password matches host password (grants moderator)
+        if (hasHostPassword && providedPassword === meeting.hostPassword) {
+          isModerator = true;
+          console.log('[Jitsi Token] Host password matched - granting moderator');
+        }
+        // Check if provided password matches participant password
+        else if (hasParticipantPassword && providedPassword === meeting.participantPassword) {
+          // Valid participant password, not moderator
+          console.log('[Jitsi Token] Participant password matched');
+        }
+        // Check legacy single password (backwards compatibility)
+        else if (hasLegacyPassword && providedPassword === meeting.password) {
+          console.log('[Jitsi Token] Legacy password matched');
+        }
+        // No password matched
+        else {
           return NextResponse.json(
             {
               success: false,
