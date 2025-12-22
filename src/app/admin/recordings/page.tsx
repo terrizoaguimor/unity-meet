@@ -5,31 +5,24 @@ import gsap from 'gsap';
 
 interface Recording {
   id: string;
+  key: string;
   filename: string;
-  url: string;
-  duration: number;
+  streamUrl: string;
   size: string;
-  status: string;
   createdAt: string;
-  user: {
-    id: string;
-    name: string;
-    email: string;
-  };
-  meeting: {
-    id: string;
-    title: string;
-    roomId: string;
-  };
+  roomId: string;
 }
 
 export default function RecordingsManagement() {
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [playingVideo, setPlayingVideo] = useState<Recording | null>(null);
+  const [downloading, setDownloading] = useState<string | null>(null);
 
   const headerRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchRecordings();
@@ -56,6 +49,15 @@ export default function RecordingsManagement() {
     }
   }, [loading]);
 
+  useEffect(() => {
+    if (playingVideo && modalRef.current) {
+      gsap.fromTo(modalRef.current,
+        { opacity: 0, scale: 0.9 },
+        { opacity: 1, scale: 1, duration: 0.3, ease: 'power2.out' }
+      );
+    }
+  }, [playingVideo]);
+
   async function fetchRecordings() {
     try {
       const response = await fetch('/api/admin/recordings');
@@ -70,31 +72,45 @@ export default function RecordingsManagement() {
     }
   }
 
-  async function deleteRecording(id: string) {
-    if (!confirm('¿Estás seguro de eliminar esta grabación?')) return;
+  async function downloadRecording(recording: Recording) {
+    if (downloading) return;
+
+    setDownloading(recording.id);
+    try {
+      const response = await fetch(`/api/admin/recordings/${encodeURIComponent(recording.key)}`);
+      if (response.ok) {
+        const data = await response.json();
+        // Open download URL in new tab
+        window.open(data.downloadUrl, '_blank');
+      } else {
+        const error = await response.json();
+        alert(error.error || 'Error al descargar');
+      }
+    } catch (error) {
+      console.error('Error downloading recording:', error);
+      alert('Error al descargar la grabación');
+    } finally {
+      setDownloading(null);
+    }
+  }
+
+  async function deleteRecording(recording: Recording) {
+    if (!confirm('¿Estás seguro de eliminar esta grabación? Esta acción no se puede deshacer.')) return;
 
     try {
-      const response = await fetch(`/api/admin/recordings/${id}`, {
+      const response = await fetch(`/api/admin/recordings/${encodeURIComponent(recording.key)}`, {
         method: 'DELETE',
       });
 
       if (response.ok) {
-        setRecordings(recordings.filter(r => r.id !== id));
+        setRecordings(recordings.filter(r => r.id !== recording.id));
+        if (playingVideo?.id === recording.id) {
+          setPlayingVideo(null);
+        }
       }
     } catch (error) {
       console.error('Error deleting recording:', error);
     }
-  }
-
-  function formatDuration(seconds: number): string {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-
-    if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    }
-    return `${minutes}:${secs.toString().padStart(2, '0')}`;
   }
 
   function formatFileSize(bytes: string): string {
@@ -105,10 +121,19 @@ export default function RecordingsManagement() {
     return `${(size / (1024 * 1024 * 1024)).toFixed(2)} GB`;
   }
 
+  function formatDate(dateStr: string): string {
+    return new Date(dateStr).toLocaleDateString('es-MX', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
   const filteredRecordings = recordings.filter(recording =>
     recording.filename.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    recording.user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    recording.meeting.title.toLowerCase().includes(searchQuery.toLowerCase())
+    recording.roomId.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   // Calculate total size
@@ -127,12 +152,89 @@ export default function RecordingsManagement() {
 
   return (
     <div className="space-y-6">
+      {/* Video Player Modal */}
+      {playingVideo && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={() => setPlayingVideo(null)}
+        >
+          <div
+            ref={modalRef}
+            className="relative w-full max-w-5xl mx-4 bg-slate-900 rounded-2xl overflow-hidden shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-4 border-b border-white/10">
+              <div>
+                <h3 className="text-white font-medium">{playingVideo.filename}</h3>
+                <p className="text-white/50 text-sm">Sala: {playingVideo.roomId}</p>
+              </div>
+              <button
+                onClick={() => setPlayingVideo(null)}
+                className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+              >
+                <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Video Player */}
+            <div className="aspect-video bg-black">
+              <video
+                src={playingVideo.streamUrl}
+                controls
+                autoPlay
+                className="w-full h-full"
+                controlsList="nodownload"
+                onContextMenu={(e) => e.preventDefault()}
+              >
+                Tu navegador no soporta el elemento de video.
+              </video>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-between p-4 border-t border-white/10">
+              <div className="flex items-center gap-4 text-sm text-white/50">
+                <span>{formatFileSize(playingVideo.size)}</span>
+                <span>{formatDate(playingVideo.createdAt)}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => downloadRecording(playingVideo)}
+                  disabled={downloading === playingVideo.id}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-500/50 text-white rounded-lg transition-colors"
+                >
+                  {downloading === playingVideo.id ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                  )}
+                  Descargar
+                </button>
+                <button
+                  onClick={() => deleteRecording(playingVideo)}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  Eliminar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div ref={headerRef} className="opacity-0">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold text-white">Grabaciones</h1>
-            <p className="text-white/50 mt-2">Todas las grabaciones del sistema</p>
+            <p className="text-white/50 mt-2">Grabaciones almacenadas en DigitalOcean Spaces</p>
           </div>
           <div className="flex items-center gap-4">
             {/* Search */}
@@ -170,7 +272,10 @@ export default function RecordingsManagement() {
               className="group bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-white/5 overflow-hidden hover:border-orange-500/30 hover:shadow-xl hover:shadow-orange-500/10 transition-all duration-300"
             >
               {/* Thumbnail / Preview */}
-              <div className="relative bg-gradient-to-br from-slate-900 to-slate-800 aspect-video flex items-center justify-center overflow-hidden">
+              <div
+                className="relative bg-gradient-to-br from-slate-900 to-slate-800 aspect-video flex items-center justify-center overflow-hidden cursor-pointer"
+                onClick={() => setPlayingVideo(recording)}
+              >
                 {/* Animated background */}
                 <div className="absolute inset-0 bg-gradient-to-br from-orange-500/5 to-purple-500/5" />
                 <div className="absolute -top-10 -right-10 w-32 h-32 bg-orange-500/10 rounded-full blur-2xl group-hover:bg-orange-500/20 transition-all" />
@@ -183,24 +288,14 @@ export default function RecordingsManagement() {
                   </svg>
                 </div>
 
-                {/* Duration badge */}
-                <span className="absolute bottom-3 right-3 bg-black/60 backdrop-blur-sm text-white text-xs px-2.5 py-1 rounded-lg font-medium">
-                  {formatDuration(recording.duration)}
-                </span>
-
                 {/* Play overlay */}
-                <a
-                  href={recording.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/40 transition-all"
-                >
+                <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/40 transition-all">
                   <div className="w-14 h-14 rounded-full bg-white/10 backdrop-blur flex items-center justify-center opacity-0 group-hover:opacity-100 scale-75 group-hover:scale-100 transition-all">
                     <svg className="w-6 h-6 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
                       <path d="M8 5v14l11-7z" />
                     </svg>
                   </div>
-                </a>
+                </div>
               </div>
 
               <div className="p-5">
@@ -209,43 +304,48 @@ export default function RecordingsManagement() {
                   {recording.filename}
                 </h3>
                 <p className="text-white/40 text-sm mt-1 truncate">
-                  {recording.meeting.title}
+                  Sala: {recording.roomId}
                 </p>
 
-                {/* User & Size */}
+                {/* Size */}
                 <div className="flex items-center justify-between mt-4">
-                  <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white text-xs font-medium">
-                      {recording.user.name.charAt(0)}
-                    </div>
-                    <span className="text-white/50 text-sm truncate max-w-[100px]">{recording.user.name}</span>
-                  </div>
-                  <span className="text-white/40 text-sm">{formatFileSize(recording.size)}</span>
+                  <span className="text-white/50 text-sm">{formatFileSize(recording.size)}</span>
+                  <span className="px-2 py-1 rounded-lg bg-green-500/10 text-green-400 text-xs font-medium">
+                    Disponible
+                  </span>
                 </div>
 
                 {/* Footer */}
                 <div className="flex items-center justify-between mt-4 pt-4 border-t border-white/5">
                   <span className="text-white/40 text-xs">
-                    {new Date(recording.createdAt).toLocaleDateString('es-MX', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric'
-                    })}
+                    {formatDate(recording.createdAt)}
                   </span>
                   <div className="flex items-center gap-1">
-                    <a
-                      href={recording.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-2 text-white/40 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all"
+                    <button
+                      onClick={() => setPlayingVideo(recording)}
+                      className="p-2 text-white/40 hover:text-orange-400 hover:bg-orange-500/10 rounded-lg transition-all"
+                      title="Reproducir"
+                    >
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M8 5v14l11-7z" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => downloadRecording(recording)}
+                      disabled={downloading === recording.id}
+                      className="p-2 text-white/40 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all disabled:opacity-50"
                       title="Descargar"
                     >
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                      </svg>
-                    </a>
+                      {downloading === recording.id ? (
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-white/60 rounded-full animate-spin" />
+                      ) : (
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                      )}
+                    </button>
                     <button
-                      onClick={() => deleteRecording(recording.id)}
+                      onClick={() => deleteRecording(recording)}
                       className="p-2 text-white/40 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
                       title="Eliminar"
                     >
@@ -268,7 +368,7 @@ export default function RecordingsManagement() {
               </svg>
             </div>
             <p className="text-white/40 text-lg">No se encontraron grabaciones</p>
-            <p className="text-white/30 text-sm mt-2">Las grabaciones aparecerán aquí cuando se creen</p>
+            <p className="text-white/30 text-sm mt-2">Las grabaciones de Jibri aparecerán aquí automáticamente</p>
           </div>
         </div>
       )}
