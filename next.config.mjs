@@ -1,6 +1,14 @@
+// Allow self-signed certificates for DigitalOcean managed database
+if (process.env.NODE_ENV === 'production') {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  experimental: {
+    instrumentationHook: true,
+  },
   // Configuración para WebRTC y Telnyx Video SDK
   webpack: (config, { isServer }) => {
     if (!isServer) {
