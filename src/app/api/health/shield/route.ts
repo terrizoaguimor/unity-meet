@@ -16,7 +16,9 @@ export async function GET() {
       });
     }
 
-    const isHealthy = health.redis && health.sentinel && health.circuitBreaker === 'CLOSED';
+    const isHealthy = health.initialized &&
+                       health.redis.connected &&
+                       health.redis.circuitState === 'CLOSED';
 
     return NextResponse.json({
       status: isHealthy ? 'healthy' : 'degraded',

@@ -80,11 +80,11 @@ export async function shutdownShield(): Promise<void> {
  * Check Shield health status
  */
 export async function getShieldHealth(): Promise<{
-  redis: boolean;
-  sentinel: boolean;
-  circuitBreaker: string;
+  initialized: boolean;
+  redis: { connected: boolean; circuitState: string };
+  telemetry: { circuitState: string; bufferSize: number };
 } | null> {
   const shield = await getShield();
   if (!shield) return null;
-  return shield.isHealthy();
+  return shield.getHealth();
 }
